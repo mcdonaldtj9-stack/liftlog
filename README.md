@@ -2,7 +2,7 @@
 
 A workout and bodyweight tracker built as an installable PWA, for one person, on one iPhone.
 
-Live at **https://mcdonaldtj9.github.io/liftlog/**
+Live at **https://mcdonaldtj9-stack.github.io/liftlog/**
 
 ## Why it exists
 
