@@ -1,0 +1,174 @@
+/* LiftLog — dark-first, built for a phone in a gym. */
+
+:root {
+  --bg:        #0e1116;
+  --surface:   #171c24;
+  --surface-2: #1f2631;
+  --line:      #2b3340;
+  --text:      #e8edf4;
+  --muted:     #8e9bad;
+  --accent:    #4c8dff;
+  --accent-in: #ffffff;
+  --danger:    #ff5c5c;
+
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tabbar-h: 56px;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+}
+
+/* Don't let a mis-tap select label text mid-workout. Inputs stay selectable. */
+button, .tab, .topbar, .tabbar { -webkit-user-select: none; user-select: none; }
+button { -webkit-tap-highlight-color: transparent; }
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 10px) 16px 10px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.place-chip {
+  margin-left: auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- main ---------- */
+
+#main {
+  padding: 16px 16px calc(var(--tabbar-h) + var(--safe-bottom) + 24px);
+}
+
+.empty {
+  text-align: center;
+  padding: 56px 8px;
+  color: var(--muted);
+}
+.empty-icon { font-size: 44px; line-height: 1; }
+.empty h2 { color: var(--text); font-size: 19px; margin: 16px 0 8px; }
+.empty p  { margin: 0 auto; max-width: 30ch; font-size: 15px; }
+
+/* ---------- settings ---------- */
+
+.settings h2 { font-size: 19px; margin: 4px 0 16px; }
+
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0;
+  margin: 0 0 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.kv dt,
+.kv dd {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.kv dt { color: var(--muted); }
+.kv dd { text-align: right; font-variant-numeric: tabular-nums; }
+.kv dt:nth-last-of-type(1),
+.kv dd:nth-last-of-type(1) { border-bottom: 0; }
+
+.hint { color: var(--muted); font-size: 14px; max-width: 46ch; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-in);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.btn:active { opacity: 0.75; }
+
+/* ---------- tab bar ---------- */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: calc(var(--tabbar-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line);
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab span { font-size: 21px; line-height: 1; }
+.tab.is-active { color: var(--accent); }
+.tab:active { opacity: 0.6; }
+
+/* Light mode: the app is dark by design, but don't blind anyone whose
+   system forces light rendering of form controls. */
+@media (prefers-color-scheme: light) {
+  :root { color-scheme: dark; }
+}

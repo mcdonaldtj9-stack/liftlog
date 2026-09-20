@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LiftLog</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1116">
+<meta name="color-scheme" content="dark">
+
+<!-- iOS home-screen app -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LiftLog">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="viewTitle">Train</h1>
+  <span class="place-chip" id="placeChip" hidden></span>
+</header>
+
+<main id="main">
+
+  <section class="view" id="view-train">
+    <div class="empty">
+      <div class="empty-icon">🏋️</div>
+      <h2>Shell is live</h2>
+      <p>Workout logging lands in the next push. If you're reading this from the Home Screen icon with no Safari address bar, the install worked.</p>
+    </div>
+  </section>
+
+  <section class="view" id="view-history" hidden>
+    <div class="empty">
+      <div class="empty-icon">📈</div>
+      <h2>History</h2>
+      <p>Per-exercise history, PRs and estimated 1RM will live here.</p>
+    </div>
+  </section>
+
+  <section class="view" id="view-weight" hidden>
+    <div class="empty">
+      <div class="empty-icon">⚖️</div>
+      <h2>Bodyweight</h2>
+      <p>Weigh-ins, trend line and the "last weigh-in was N days ago" nudge go here.</p>
+    </div>
+  </section>
+
+  <section class="view" id="view-settings" hidden>
+    <div class="settings">
+      <h2>Settings</h2>
+      <dl class="kv">
+        <dt>Build</dt><dd id="buildStamp">—</dd>
+        <dt>Display mode</dt><dd id="displayMode">—</dd>
+        <dt>Offline cache</dt><dd id="swState">—</dd>
+        <dt>Storage</dt><dd id="storageState">—</dd>
+      </dl>
+      <p class="hint">This panel exists so we can confirm an update actually reached your phone. The build number changes every time I push.</p>
+      <button class="btn" id="forceUpdate">Check for update</button>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" id="tabbar">
+  <button class="tab is-active" data-view="train"    type="button"><span>🏋️</span>Train</button>
+  <button class="tab"           data-view="history"  type="button"><span>📈</span>History</button>
+  <button class="tab"           data-view="weight"   type="button"><span>⚖️</span>Weight</button>
+  <button class="tab"           data-view="settings" type="button"><span>⚙️</span>Settings</button>
+</nav>
+
+<script src="js/app.js"></script>
+</body>
+</html>
