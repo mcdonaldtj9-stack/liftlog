@@ -80,9 +80,12 @@ if ('serviceWorker' in navigator) {
       .catch(() => setText('swState', 'Failed'));
 
     // A new build took over — reload so you're never left on a stale screen.
+    // Only when replacing an existing worker: on the very first install the
+    // controller goes null -> active, and reloading there can loop.
+    const hadController = Boolean(navigator.serviceWorker.controller);
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return;
+      if (!hadController || reloading) return;
       reloading = true;
       window.location.reload();
     });
