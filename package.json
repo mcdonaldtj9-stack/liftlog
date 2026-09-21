@@ -1,0 +1,15 @@
+{
+  "name": "liftlog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Workout and bodyweight tracker PWA",
+  "scripts": {
+    "test": "node test/store.test.mjs",
+    "check": "node --check js/app.js && node --check js/db.js && node --check js/store.js && node --check js/seed.js && node --check js/train.js && node --check sw.js",
+    "serve": "python -m http.server 8732 --bind 127.0.0.1"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
+  }
+}

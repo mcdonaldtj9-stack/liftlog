@@ -1,18 +1,26 @@
 /* LiftLog service worker.
    Bump CACHE on every deploy — that's what evicts the old build. */
 
-const CACHE = 'liftlog-v1';
+const CACHE = 'liftlog-v2';
 
 const SHELL = [
   './',
   'index.html',
   'css/app.css',
   'js/app.js',
+  'js/db.js',
+  'js/store.js',
+  'js/seed.js',
+  'js/train.js',
   'manifest.webmanifest',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
 ];
+
+/* How long to wait for the network before falling back to cache. Short enough
+   that a dead zone at the gym doesn't feel like a hang. */
+const NETWORK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -33,6 +41,46 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+function fromNetwork(request, cacheKey) {
+  return fetch(request).then((response) => {
+    if (response && response.ok) {
+      const copy = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(cacheKey || request, copy));
+    }
+    return response;
+  });
+}
+
+/* Network first, but never wait longer than NETWORK_TIMEOUT_MS before serving
+   what we have. Everything same-origin goes through this: mixing a network-first
+   document with cache-first scripts is how you end up running yesterday's JS
+   against today's HTML. */
+function networkFirst(request, cacheKey) {
+  const key = cacheKey || request;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (response) => {
+      if (settled) return;
+      settled = true;
+      resolve(response);
+    };
+
+    const timer = setTimeout(() => {
+      caches.match(key).then((hit) => { if (hit) finish(hit); });
+    }, NETWORK_TIMEOUT_MS);
+
+    fromNetwork(request, cacheKey)
+      .then((response) => { clearTimeout(timer); finish(response); })
+      .catch(() => {
+        clearTimeout(timer);
+        caches.match(key)
+          .then((hit) => finish(hit || Response.error()))
+          .catch(() => finish(Response.error()));
+      });
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -40,34 +88,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navigations: network first, so a fresh build shows up as soon as there's
-  // signal, but the app still opens in a gym basement.
+  // Navigations all resolve to the one page; cache it under a stable key so the
+  // subpath (/liftlog/) and the bare document agree.
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('index.html', copy));
-          return response;
-        })
-        .catch(() => caches.match('index.html').then((hit) => hit || caches.match('./')))
-    );
+    event.respondWith(networkFirst(request, 'index.html'));
     return;
   }
 
-  // Assets: cache first for instant loads, refresh in the background.
-  event.respondWith(
-    caches.match(request).then((hit) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => hit);
-      return hit || network;
-    })
-  );
+  event.respondWith(networkFirst(request));
 });

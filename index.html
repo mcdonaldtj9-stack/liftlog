@@ -29,13 +29,7 @@
 
 <main id="main">
 
-  <section class="view" id="view-train">
-    <div class="empty">
-      <div class="empty-icon">🏋️</div>
-      <h2>Shell is live</h2>
-      <p>Workout logging lands in the next push. If you're reading this from the Home Screen icon with no Safari address bar, the install worked.</p>
-    </div>
-  </section>
+  <section class="view" id="view-train"></section>
 
   <section class="view" id="view-history" hidden>
     <div class="empty">
@@ -55,7 +49,6 @@
 
   <section class="view" id="view-settings" hidden>
     <div class="settings">
-      <h2>Settings</h2>
       <dl class="kv">
         <dt>Build</dt><dd id="buildStamp">—</dd>
         <dt>Display mode</dt><dd id="displayMode">—</dd>
@@ -76,6 +69,6 @@
   <button class="tab"           data-view="settings" type="button"><span>⚙️</span>Settings</button>
 </nav>
 
-<script src="js/app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

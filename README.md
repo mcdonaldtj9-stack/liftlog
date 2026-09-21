@@ -25,10 +25,24 @@ assume you always train in the same place. This one doesn't.
 Vanilla HTML/CSS/JS, no build step. IndexedDB locally, Supabase (Postgres) for
 sync. Hosted on GitHub Pages.
 
+## Development
+
+No build step — the app is plain files. Node is only used for checks:
+
+```
+npm install      # once, for the test's fake IndexedDB
+npm test         # data-layer tests against a real IndexedDB implementation
+npm run check    # syntax-check every script before pushing
+npm run serve    # http://127.0.0.1:8732
+```
+
+`npm test` is the only safety net that runs off-device, so anything where a
+silent data bug would cost a logged workout belongs in it.
+
 ## Build order
 
 1. ✅ App shell, manifest, service worker, deploy
-2. Exercises + set logging with RPE (local only)
+2. ✅ Exercises + set logging with RPE (local only)
 3. Places + auto-detect
 4. Supabase schema, auth, sync queue
 5. Bodyweight + weigh-in nudge

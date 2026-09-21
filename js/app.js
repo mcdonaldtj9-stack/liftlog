@@ -1,8 +1,8 @@
-/* LiftLog — app shell.
-   Step 1: navigation, service-worker install, and a diagnostics panel so we can
-   confirm from your phone that a push actually landed. */
+/* LiftLog — app shell: navigation, service-worker install, diagnostics. */
 
-const BUILD = '1';
+import * as train from './train.js';
+
+const BUILD = '2';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -35,6 +35,15 @@ try {
   if (last) show(last);
 } catch {}
 
+/* The fixed tab bar sits exactly where the iOS keyboard appears. Get it out of
+   the way while a field is focused, or it covers what you're typing. */
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches('input, textarea')) document.body.classList.add('kb-open');
+});
+document.addEventListener('focusout', () => {
+  document.body.classList.remove('kb-open');
+});
+
 /* ---------- diagnostics ---------- */
 
 function setText(id, value) {
@@ -49,8 +58,6 @@ const standalone =
   window.navigator.standalone === true;
 setText('displayMode', standalone ? 'Installed ✓' : 'In browser');
 
-/* Ask iOS to keep our data. Installed home-screen apps are exempt from the
-   7-day eviction rule, but asking costs nothing and helps in the browser. */
 if (navigator.storage?.persist) {
   navigator.storage.persisted()
     .then((already) => (already ? true : navigator.storage.persist()))
@@ -59,6 +66,15 @@ if (navigator.storage?.persist) {
 } else {
   setText('storageState', 'Not supported');
 }
+
+/* ---------- boot ---------- */
+
+train.mount(document.getElementById('view-train')).catch((err) => {
+  console.error('[liftlog] failed to start', err);
+  document.getElementById('view-train').innerHTML =
+    `<div class="empty"><h2>Couldn't open the database</h2>
+     <p>${String(err && err.message ? err.message : err)}</p></div>`;
+});
 
 /* ---------- service worker ---------- */
 
@@ -80,12 +96,15 @@ if ('serviceWorker' in navigator) {
       .catch(() => setText('swState', 'Failed'));
 
     // A new build took over — reload so you're never left on a stale screen.
-    // Only when replacing an existing worker: on the very first install the
-    // controller goes null -> active, and reloading there can loop.
+    // Only when replacing an existing worker: on first install the controller
+    // goes null -> active, and reloading there can loop.
     const hadController = Boolean(navigator.serviceWorker.controller);
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadController || reloading) return;
+      // Never yank the page out from under a set you're mid-way through
+      // entering. The new worker is already active; the next launch picks it up.
+      if (document.body.classList.contains('sheet-open')) return;
       reloading = true;
       window.location.reload();
     });
