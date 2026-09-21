@@ -23,8 +23,9 @@ assume you always train in the same place. This one doesn't.
   shows what you actually lifted last time.
 - **RPE on every set.** 6–10 in half steps, optional so warmups skip it.
 - **Gym-aware.** Notes you write against an exercise come back the next time you
-  do it at that same gym. Location is picked by hand today; GPS auto-detect is
-  next, and will never block the start of a workout waiting on a fix.
+  do it at that same gym. Save each gym's spot once (Locations → Set to here) and starting a
+  workout there picks it for you. Detection never blocks the start of a session,
+  and never overrides a location you chose or a routine tied to a gym — it offers.
 - **Rest timer** storing an absolute deadline, so locking the phone doesn't stop
   it. Beeps on finish. iOS has no vibration API for web apps, so a notification
   (system sound + haptic) is the closest substitute and is opt-in.
@@ -97,7 +98,7 @@ silent data bug would cost a logged workout belongs in it.
    plus a confirmation step on outlier weights and rep counts
 4. ✅ Routines with per-exercise targets, optionally per location,
    plus 1RM-based weight suggestions
-5. GPS auto-detect for locations
+5. ✅ GPS gym detection: save each gym once, then sessions pick it up
 6. ✅ Supabase schema, auth, background sync
 7. ✅ Bodyweight with per-scale correction, trend, and weigh-in nudge
 8. ✅ History: weekly sets by region, per-exercise strength trend, rep maxes, sessions

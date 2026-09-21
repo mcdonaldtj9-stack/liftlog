@@ -91,6 +91,20 @@ export async function createPlace(name) {
   return record;
 }
 
+/* Save where a place actually is, from a fix taken while standing in it. The
+   accuracy and time are kept so the app can say how good the capture was. */
+export async function setPlaceLocation(place, { lat, lng, accuracy }) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('No coordinates');
+  const next = db.touch(place, {
+    lat,
+    lng,
+    accuracy_m: Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+    located_at: db.nowISO(),
+  });
+  await db.put('places', next);
+  return next;
+}
+
 export async function setWorkoutPlace(workout, placeId) {
   const next = db.touch(workout, { place_id: placeId || null });
   await db.put('workouts', next);

@@ -5,6 +5,7 @@
 import * as store from './store.js';
 import * as rest from './rest.js';
 import { checkSet, suggestWeight, DEFAULT_TARGET_RPE } from './rules.js';
+import * as geo from './geo.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
@@ -26,6 +27,13 @@ const state = {
   template: null,        // the routine this session was started from
   templateDraft: null,   // survives the picker opening on top of the editor
   lastPlaceId: null,
+  // Location detection. Kept in memory only: it describes this session on this
+  // phone, and is meaningless after a restart.
+  placePickedManually: false,  // a tap on the location beats anything GPS says
+  placeDetected: false,        // the current location came from GPS
+  placeSuggestion: null,       // GPS disagrees with an explicit choice: offer, don't apply
+  geoStatus: null,             // readout for the Locations sheet
+  geoBusy: null,               // place id being captured, or 'detect'
   targets: new Map(),    // exercise id -> {sets, reps} from the routine
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
@@ -188,6 +196,7 @@ function renderIdle() {
 
     <button class="btn btn-block" data-act="start">Start empty workout</button>
     <button class="btn btn-quiet btn-block" data-act="new-template">+ New routine</button>
+    <button class="btn-link" data-act="place">Locations</button>
 
     ${state.recent.length ? `
       <h3 class="section-label">Recent sessions</h3>
@@ -276,34 +285,71 @@ function renderActive() {
         ${state.template ? `<span class="session-routine">${escapeHTML(state.template.name)}</span>` : ''}
       </div>
       <button class="place-pick" data-act="place">
-        ${state.place ? escapeHTML(state.place.name) : 'Set location'}
+        ${state.placeDetected ? '<span class="geo-pin" aria-label="detected">◉</span> ' : ''}${
+          state.place ? escapeHTML(state.place.name) : 'Set location'}
       </button>
     </div>
+    ${state.placeSuggestion ? `
+      <div class="geo-suggest">
+        <span>Looks like you're at <strong>${escapeHTML(state.placeSuggestion.name)}</strong></span>
+        <button class="btn-link" data-act="geo-accept">Switch</button>
+        <button class="btn-link geo-dismiss" data-act="geo-dismiss" aria-label="Dismiss">×</button>
+      </div>` : ''}
     ${blocks || '<p class="hint center">Nothing logged yet. Add an exercise to begin.</p>'}
     <button class="btn btn-block" data-act="pick">+ Add exercise</button>
     ${finishArea}
   `;
 }
 
+function savedLine(place) {
+  if (!geo.hasLocation(place)) return 'No location saved';
+  const when = place.located_at
+    ? new Date(place.located_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : 'saved';
+  const acc = place.accuracy_m != null ? ` · ±${geo.formatDistance(place.accuracy_m)}` : '';
+  const rough = place.accuracy_m > geo.ROUGH_CAPTURE_M
+    ? ' · rough, retake near a window' : '';
+  return `Saved ${when}${acc}${rough}`;
+}
+
 function renderPlaceSheet() {
-  const rows = state.places.map((place) => `
-    <li>
-      <button class="pick-row ${state.workout?.place_id === place.id ? 'is-on' : ''}"
-              data-act="choose-place" data-place="${place.id}">
-        <span class="pick-name">${escapeHTML(place.name)}</span>
-        ${state.workout?.place_id === place.id ? '<span class="pick-group">current</span>' : ''}
-      </button>
-    </li>`).join('');
+  const inSession = Boolean(state.workout);
+  const rows = state.places.map((place) => {
+    const current = state.workout?.place_id === place.id;
+    const busy = state.geoBusy === place.id;
+    return `
+      <li class="place-row ${current ? 'is-on' : ''}">
+        ${inSession ? `
+          <button class="place-choose" data-act="choose-place" data-place="${place.id}">
+            <span class="pick-name">${escapeHTML(place.name)}</span>
+            <span class="place-saved">${escapeHTML(savedLine(place))}</span>
+          </button>` : `
+          <div class="place-choose">
+            <span class="pick-name">${escapeHTML(place.name)}</span>
+            <span class="place-saved">${escapeHTML(savedLine(place))}</span>
+          </div>`}
+        <button class="btn btn-quiet place-capture" data-act="geo-capture" data-place="${place.id}"
+                ${state.geoBusy ? 'disabled' : ''}>
+          ${busy ? 'Locating…' : geo.hasLocation(place) ? 'Update' : 'Set to here'}
+        </button>
+      </li>`;
+  }).join('');
 
   return `
     <div class="sheet">
       <header class="sheet-head">
-        <h2>Where are you training?</h2>
+        <h2>${inSession ? 'Where are you training?' : 'Locations'}</h2>
         <button class="btn-link" data-act="close">Done</button>
       </header>
-      <p class="hint">Notes you write are shown back to you the next time you do
-         that exercise here.</p>
-      <ul class="pick-list">${rows}</ul>
+      <p class="hint">Stand in a gym and tap <strong>Set to here</strong> once. After
+         that, starting a workout there picks it for you. Notes you write come
+         back the next time you do that exercise at the same place.</p>
+      <button class="btn btn-quiet btn-block" data-act="geo-detect" ${state.geoBusy ? 'disabled' : ''}>
+        ${state.geoBusy === 'detect' ? 'Locating…' : 'Where am I?'}
+      </button>
+      ${state.geoStatus ? `<p class="geo-status ${state.geoStatus.tone || ''}">${
+        escapeHTML(state.geoStatus.text)}</p>` : ''}
+      <ul class="place-list">${rows}</ul>
       <input class="search" id="newPlace" type="text" autocomplete="off"
              autocapitalize="words" placeholder="Add another location">
       <button class="btn btn-quiet btn-block" data-act="create-place">Add location</button>
@@ -889,9 +935,12 @@ async function onClick(event) {
   switch (act) {
     case 'start':
       state.workout = await store.startWorkout();
+      resetDetection();
       await refresh();
       state.sheet = { type: 'picker', query: '' };
-      return render();
+      render();
+      detectForSession({ explicit: false });
+      return;
 
     case 'pick':
       state.sheet = { type: 'picker', query: '' };
@@ -913,18 +962,43 @@ async function onClick(event) {
 
     case 'choose-place':
       state.workout = await store.setWorkoutPlace(state.workout, trigger.dataset.place);
+      state.placePickedManually = true;
+      state.placeDetected = false;
+      state.placeSuggestion = null;
       await refresh();
       state.sheet = null;
       return render();
+
+    case 'geo-accept':
+      if (!state.placeSuggestion || !state.workout) return;
+      state.workout = await store.setWorkoutPlace(state.workout, state.placeSuggestion.id);
+      state.placeSuggestion = null;
+      state.placeDetected = true;
+      await refresh();
+      return render();
+
+    case 'geo-dismiss':
+      state.placeSuggestion = null;
+      return render();
+
+    case 'geo-detect':
+      return detectNow();
+
+    case 'geo-capture':
+      return capturePlace(trigger.dataset.place);
 
     case 'create-place': {
       const input = root.querySelector('#newPlace');
       const name = input?.value.trim();
       if (!name) return;
       const place = await store.createPlace(name);
-      state.workout = await store.setWorkoutPlace(state.workout, place.id);
+      if (state.workout) {
+        state.workout = await store.setWorkoutPlace(state.workout, place.id);
+        state.placePickedManually = true;
+        state.placeDetected = false;
+        state.sheet = null;
+      }
       await refresh();
-      state.sheet = null;
       return render();
     }
 
@@ -981,8 +1055,12 @@ async function onClick(event) {
 
     case 'start-template': {
       state.workout = await store.startWorkout({ templateId: trigger.dataset.template });
+      resetDetection();
       await refresh();
-      return render();
+      render();
+      // A routine tied to a gym is an explicit choice: GPS may suggest, not override.
+      detectForSession({ explicit: Boolean(state.workout.template_id && state.workout.place_id) });
+      return;
     }
 
     case 'new-template':
@@ -1209,6 +1287,113 @@ export async function reload() {
   await refresh();
   render();
   return true;
+}
+
+/* ---------- location ---------- */
+
+function resetDetection() {
+  state.placePickedManually = false;
+  state.placeDetected = false;
+  state.placeSuggestion = null;
+}
+
+/* Only repaint when nothing is open: a sheet may hold a half-entered set. */
+function renderIfIdle() {
+  if (!state.sheet || state.sheet.type === 'picker') render();
+}
+
+/* Runs after a session starts and never blocks it. Indoor fixes are slow and
+   often vague; if nothing useful comes back, nothing happens.
+
+   Applied silently only when the current location was a guess — the default
+   carried over from last time — and you haven't touched it or logged anything.
+   Otherwise, if GPS disagrees, it's offered as a one-tap suggestion. */
+async function detectForSession({ explicit }) {
+  const sessionId = state.workout?.id;
+  let fix;
+  try {
+    fix = await geo.currentFix({ timeout: 15000, maximumAge: 60000 });
+  } catch {
+    return;
+  }
+
+  // The world may have moved on while we waited.
+  if (!state.workout || state.workout.id !== sessionId || state.workout.ended_at) return;
+
+  const match = geo.matchPlace(state.places, fix);
+  if (!match || match.place.id === state.workout.place_id) {
+    if (match) state.placeDetected = true;
+    return renderIfIdle();
+  }
+
+  const canApply = !explicit && !state.placePickedManually
+    && !match.ambiguous && state.sets.length === 0;
+
+  if (canApply) {
+    state.workout = await store.setWorkoutPlace(state.workout, match.place.id);
+    state.placeDetected = true;
+    const sheetOpen = state.sheet && state.sheet.type !== 'picker';
+    if (!sheetOpen) await refresh();
+  } else {
+    state.placeSuggestion = match.place;
+  }
+  renderIfIdle();
+}
+
+/* The "Where am I?" button: the diagnostics readout for this feature. */
+async function detectNow() {
+  state.geoBusy = 'detect';
+  state.geoStatus = null;
+  render();
+  try {
+    const fix = await geo.currentFix();
+    const match = geo.matchPlace(state.places, fix);
+    const nearest = geo.nearestPlace(state.places, fix);
+    const acc = geo.formatDistance(fix.accuracy);
+
+    if (fix.accuracy > geo.MAX_USEFUL_ACCURACY_M) {
+      state.geoStatus = { tone: 'warn', text: `Location too vague to use (±${acc}). Try near a window.` };
+    } else if (match) {
+      state.geoStatus = {
+        tone: 'good',
+        text: `${geo.formatDistance(match.distance)} from ${match.place.name} (±${acc})`
+          + (match.ambiguous ? ' — another saved place is also this close' : ''),
+      };
+    } else if (nearest) {
+      state.geoStatus = {
+        text: `Not at a saved place. Nearest is ${nearest.place.name}, `
+          + `${geo.formatDistance(nearest.distance)} away (±${acc}).`,
+      };
+    } else {
+      state.geoStatus = { text: `Got a fix (±${acc}), but no places have a location saved yet.` };
+    }
+  } catch (error) {
+    state.geoStatus = { tone: 'warn', text: error.message };
+  }
+  state.geoBusy = null;
+  render();
+}
+
+/* "Set to here": take a fresh fix and save it as this place's location. */
+async function capturePlace(placeId) {
+  const place = state.places.find((p) => p.id === placeId);
+  if (!place) return;
+
+  state.geoBusy = placeId;
+  state.geoStatus = null;
+  render();
+  try {
+    const fix = await geo.currentFix({ timeout: 20000, maximumAge: 0 });
+    await store.setPlaceLocation(place, fix);
+    state.places = await store.listPlaces();
+    state.geoStatus = fix.accuracy > geo.ROUGH_CAPTURE_M
+      ? { tone: 'warn', text: `Saved ${place.name}, but the fix was rough (±${geo.formatDistance(fix.accuracy)}). It'll still tell your gyms apart; retake near a window for a better one.` }
+      : { tone: 'good', text: `Saved ${place.name} (±${geo.formatDistance(fix.accuracy)}).` };
+  } catch (error) {
+    state.geoStatus = { tone: 'warn', text: error.message };
+  }
+  state.geoBusy = null;
+  render();
 }
 
 /* ---------- mount ---------- */

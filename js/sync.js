@@ -27,7 +27,7 @@ const TABLES = [
   ['exercises', 'exercises',
     ['id', 'name', 'name_key', 'muscle_group', 'tracks', 'is_custom']],
   ['places', 'places',
-    ['id', 'name', 'lat', 'lng', 'radius_m']],
+    ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at']],
   ['templates', 'templates',
     ['id', 'name', 'place_id', 'position']],
   ['template_exercises', 'template_exercises',

@@ -7,7 +7,7 @@ import * as rest from './rest.js';
 import * as supa from './supa.js';
 import * as sync from './sync.js';
 
-const BUILD = '16';
+const BUILD = '17';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },

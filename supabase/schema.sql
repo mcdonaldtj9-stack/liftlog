@@ -59,6 +59,8 @@ create table if not exists public.places (
   lat               double precision,
   lng               double precision,
   radius_m          integer,
+  accuracy_m        double precision,   -- how precise the saved fix was
+  located_at        text,               -- when it was saved
   created_at        text not null,
   updated_at        text not null,
   deleted           smallint not null default 0,

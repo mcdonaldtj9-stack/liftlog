@@ -584,5 +584,20 @@ await store.deleteWeight(weights[1]);
 check('a deleted weigh-in drops out', (await store.listWeights()).length === 3);
 check('and the scale falls back to nothing', (await store.lastWeightOn(garage.id)) === null);
 
+
+// ---------- saving a place's location ----------
+
+const located = await store.setPlaceLocation(garage, { lat: 40.1, lng: -88.2, accuracy: 44.6 });
+check('a place takes coordinates', located.lat === 40.1 && located.lng === -88.2);
+check('with the capture accuracy rounded', located.accuracy_m === 45);
+check('and when it was saved', Boolean(located.located_at));
+check('and is marked for upload', located.dirty === 1);
+check('and reads back from the list',
+  (await store.listPlaces()).find((p) => p.id === garage.id).lat === 40.1);
+
+let noCoords = null;
+try { await store.setPlaceLocation(garage, { lat: null, lng: null }); } catch (e) { noCoords = e; }
+check('a location without coordinates is refused', noCoords instanceof Error);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
