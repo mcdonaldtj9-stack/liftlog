@@ -102,7 +102,7 @@ silent data bug would cost a logged workout belongs in it.
 6. ✅ Supabase schema, auth, background sync
 7. ✅ Bodyweight with per-scale correction, trend, and weigh-in nudge
 8. ✅ History: weekly sets by region, per-exercise strength trend, rep maxes, sessions
-9. Export to a file (the other half of "not only on the phone")
+9. ✅ Backup, restore and spreadsheet export
 
 ## Notes
 

@@ -90,6 +90,24 @@
       </div>
 
       <p class="hint" id="syncMessage"></p>
+
+      <h3 class="section-label">Your data</h3>
+      <p class="hint" id="dataSummary">Counting…</p>
+      <p class="hint">A copy you keep yourself, independent of this phone and of
+         Supabase. Use <strong>Save to Files</strong> in the share sheet to put it in
+         iCloud Drive. Your login and connection details are never included.</p>
+      <button class="btn btn-block" id="exportJson" disabled>Back up everything (JSON)</button>
+      <button class="btn btn-quiet btn-block" id="exportCsv" disabled>Export spreadsheets (CSV)</button>
+      <button class="btn btn-quiet btn-block" id="importPick">Restore from a backup…</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <div id="importPreview" hidden></div>
+      <div id="exportFallback" hidden>
+        <p class="hint">This device can't share files directly. Copy the backup and
+           paste it into a note or an email to yourself.</p>
+        <textarea class="note-input" id="exportText" rows="5" readonly></textarea>
+        <button class="btn btn-quiet btn-block" id="exportCopy">Copy backup</button>
+      </div>
+      <p class="hint" id="dataMessage"></p>
       <p class="hint">This panel exists so we can confirm an update actually reached your phone. The build number changes every time I push.</p>
       <button class="btn" id="forceUpdate">Check for update</button>
     </div>

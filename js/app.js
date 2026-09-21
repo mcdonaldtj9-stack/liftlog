@@ -6,8 +6,10 @@ import * as history from './historyview.js';
 import * as rest from './rest.js';
 import * as supa from './supa.js';
 import * as sync from './sync.js';
+import * as backup from './export.js';
+import * as db from './db.js';
 
-const BUILD = '17';
+const BUILD = '18';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -31,6 +33,7 @@ function show(name) {
   // The chart sizes itself to its container, which measures zero while hidden.
   if (name === 'weight') weight.reload();
   if (name === 'history') history.reload();
+  if (name === 'settings') prepareExport();
 }
 
 document.getElementById('tabbar').addEventListener('click', (e) => {
@@ -291,6 +294,159 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') scheduleSync(800);
 });
 window.addEventListener('online', () => scheduleSync(500));
+
+/* ---------- your data: export and restore ---------- */
+
+/* The files are built ahead of time, whenever Settings is opened. iOS only lets
+   a tap open the share sheet if nothing asynchronous happens between the tap
+   and the share call, so there is no time to read the database then. */
+let prepared = null;
+let pendingImport = null;
+
+function dataMessage(text, tone = '') {
+  const node = el('dataMessage');
+  node.textContent = text || '';
+  node.className = `hint ${tone}`;
+}
+
+/* A hoisted lookup: show() can run for a remembered Settings tab before the
+   rest of this module has finished evaluating. */
+function byId(id) {
+  return document.getElementById(id);
+}
+
+async function prepareExport() {
+  byId('exportJson').disabled = true;
+  byId('exportCsv').disabled = true;
+  try {
+    const tables = await backup.readAll();
+    const json = JSON.stringify(backup.buildBackup(tables, { build: BUILD }), null, 1);
+    prepared = {
+      json,
+      jsonFile: new File([json], backup.datedName('liftlog', 'json'), { type: 'application/json' }),
+      csvFiles: [
+        new File([backup.buildSetsCSV(tables)], backup.datedName('liftlog-sets', 'csv'), { type: 'text/csv' }),
+        new File([backup.buildWeightsCSV(tables)], backup.datedName('liftlog-weight', 'csv'), { type: 'text/csv' }),
+      ],
+    };
+
+    const live = (name) => tables[name].filter((r) => !r.deleted).length;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const lastExport = await db.getMeta('last_export_at', null);
+    byId('dataSummary').textContent = [
+      plural(live('workouts'), 'session'),
+      plural(live('sets'), 'set'),
+      plural(live('bodyweights'), 'weigh-in'),
+      plural(live('templates'), 'routine'),
+    ].join(' · ') + (lastExport
+      ? ` · last backed up ${new Date(lastExport).toLocaleDateString()}`
+      : ' · never backed up');
+
+    byId('exportJson').disabled = false;
+    byId('exportCsv').disabled = false;
+  } catch (error) {
+    byId('dataSummary').textContent = `Couldn't read your data: ${error.message}`;
+  }
+}
+
+/* Called straight from the tap, with nothing awaited first. */
+function offer(files, title) {
+  backup.share(files, title)
+    .then(async () => {
+      await db.setMeta('last_export_at', new Date().toISOString());
+      dataMessage('Saved.', '');
+      prepareExport();
+    })
+    .catch((error) => {
+      if (error?.name === 'AbortError') return;          // you closed the share sheet
+      if (error?.message === 'unsupported') {
+        el('exportText').value = prepared.json;
+        el('exportFallback').hidden = false;
+        return;
+      }
+      dataMessage(`Couldn't share: ${error.message}`, 'warn');
+    });
+}
+
+el('exportJson').addEventListener('click', () => {
+  if (prepared) offer([prepared.jsonFile], 'LiftLog backup');
+});
+
+el('exportCsv').addEventListener('click', () => {
+  if (prepared) offer(prepared.csvFiles, 'LiftLog spreadsheets');
+});
+
+el('exportCopy').addEventListener('click', () => {
+  navigator.clipboard?.writeText(prepared?.json || '')
+    .then(() => dataMessage('Copied.'))
+    .catch(() => {
+      el('exportText').select();
+      dataMessage('Select all and copy.', '');
+    });
+});
+
+el('importPick').addEventListener('click', () => el('importFile').click());
+
+el('importFile').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+
+  try {
+    const parsed = backup.parseBackup(await file.text());
+    const plan = backup.planImport(parsed, await backup.readAll());
+    const preview = el('importPreview');
+
+    if (!plan.total) {
+      preview.hidden = true;
+      dataMessage('Nothing to restore: everything in that backup is already here, or older than what is.');
+      return;
+    }
+
+    pendingImport = plan;
+    const labels = {
+      workouts: 'session', sets: 'set', bodyweights: 'weigh-in', templates: 'routine',
+      exercises: 'exercise', places: 'location', exercise_notes: 'note',
+      template_exercises: 'routine entry',
+    };
+    const parts = Object.entries(plan.counts).filter(([, n]) => n)
+      .map(([name, n]) => `${n} ${labels[name]}${n === 1 ? '' : 's'}`);
+    const taken = new Date(parsed.exported_at).toLocaleDateString();
+
+    preview.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'confirm';
+    const lead = document.createElement('p');
+    lead.textContent = `Backup from ${taken}: ${parts.join(', ')} ${plan.total === 1 ? 'is' : 'are'} new or newer than what's on this phone. Anything you've changed since stays as it is.`;
+    const actions = document.createElement('div');
+    actions.className = 'confirm-actions';
+    actions.innerHTML = '<button class="btn btn-quiet" id="importCancel">Cancel</button>'
+      + '<button class="btn" id="importApply">Merge it in</button>';
+    box.append(lead, actions);
+    preview.append(box);
+    preview.hidden = false;
+    dataMessage('');
+
+    el('importCancel').addEventListener('click', () => {
+      pendingImport = null;
+      preview.hidden = true;
+    });
+    el('importApply').addEventListener('click', async () => {
+      if (!pendingImport) return;
+      const count = await backup.applyImport(pendingImport.plan);
+      pendingImport = null;
+      preview.hidden = true;
+      dataMessage(`Restored ${count} ${count === 1 ? 'item' : 'items'}. They'll upload on the next sync.`);
+      await Promise.all([train.reload(), weight.reload(), history.reload()]);
+      prepareExport();
+      scheduleSync(300);
+    });
+  } catch (error) {
+    dataMessage(error.message, 'warn');
+  }
+});
+
+prepareExport();
 
 /* ---------- service worker ---------- */
 
