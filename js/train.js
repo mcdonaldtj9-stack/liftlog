@@ -493,8 +493,17 @@ function restFor(exercise) {
   return exercise?.rest_seconds ?? state.rest.duration;
 }
 
+/* Warmups logged for this exercise in this session. */
+function warmupsLogged(exercise) {
+  return state.sets.filter((s) => s.exercise_id === exercise?.id && s.is_warmup).length;
+}
+
 function renderRestBar(exercise) {
   const left = rest.remaining(state.rest.endsAt);
+  const warmupsDone = exercise && state.sheet?.draft?.is_warmup && warmupsLogged(exercise) > 0
+    ? `<button class="btn btn-block warmups-done" data-act="warmups-done">
+         Warmups done — rest ${rest.format(restFor(exercise))}
+       </button>` : '';
   const offer = state.sheet?.restOffer && exercise && state.sheet.restOffer !== exercise.rest_seconds
     ? `<button class="btn-link rest-remember" data-act="rest-remember" data-secs="${state.sheet.restOffer}">
          Always rest ${rest.format(state.sheet.restOffer)} after ${escapeHTML(exercise.name)}?
@@ -511,7 +520,7 @@ function renderRestBar(exercise) {
               ${rest.format(s)}
             </button>`).join('')}
         </div>
-      </div>${offer}`;
+      </div>${warmupsDone}${offer}`;
   }
 
   return `
@@ -519,7 +528,7 @@ function renderRestBar(exercise) {
       <span class="rest-clock" id="restClock">${rest.format(left)}</span>
       <span class="rest-label">${left === 0 ? 'Rest is up' : 'resting'}</span>
       <button class="btn-link" data-act="rest-stop">${left === 0 ? 'Clear' : 'Skip'}</button>
-    </div>${offer}`;
+    </div>${warmupsDone}${offer}`;
 }
 
 function renderLogSheet() {
@@ -695,8 +704,11 @@ function renderLogSheet() {
           <button class="btn btn-log" data-act="log-set">Save changes</button>
         </div>` : `
         <div class="log-actions">
-          <button class="btn btn-log" data-act="log-set">Log set</button>
-          <button class="btn btn-quiet btn-drop" data-act="drop-set" ${canDrop ? '' : 'disabled'}>
+          <button class="btn btn-log ${draft.is_warmup ? 'is-warmup' : ''}" data-act="log-set">
+            ${draft.is_warmup ? 'Log warmup' : 'Log set'}
+          </button>
+          <button class="btn btn-quiet btn-drop" data-act="drop-set"
+                  ${canDrop && !draft.is_warmup ? '' : 'disabled'}>
             + Drop
           </button>
         </div>`}`}
@@ -995,17 +1007,29 @@ async function logCurrent({ isDrop, confirmed = false }) {
   state.sets = await store.setsForWorkout(state.workout.id);
   state.sheet.last = await store.lastSetFor(exerciseId);
   state.sheet.reference = await store.lastWorkSetFor(exerciseId);
-  state.sheet.draft.is_warmup = 0;
   state.sheet.draft.failed = 0;
 
-  if (isDrop) {
+  if (values.is_warmup) {
+    // Warmups run back to back: stay in warmup mode, start no rest. The full
+    // rest comes when you say you're done warming up.
+    state.sheet.draft.is_warmup = 1;
+  } else if (isDrop) {
     // Drops run back to back, so no rest and a lighter starting point.
+    state.sheet.draft.is_warmup = 0;
     const dropped = Math.max(0, Math.round(((draft.weight ?? 0) * 0.8) / 5) * 5);
     state.sheet.draft.weight = dropped;
   } else {
+    state.sheet.draft.is_warmup = 0;
     await startRest(restFor(exercise));
   }
 
+  render();
+}
+
+/* Leave warmup mode and start the full rest before the first working set. */
+async function finishWarmups(exercise) {
+  state.sheet.draft.is_warmup = 0;
+  await startRest(restFor(exercise));
   render();
 }
 
@@ -1366,9 +1390,22 @@ async function onClick(event) {
       return render();
     }
 
-    case 'warmup':
+    case 'warmup': {
+      readSheetInputs();
+      const exercise = exerciseById(state.sheet.exerciseId);
+      const turningOff = !trigger.checked;
+      // Switching back to working sets after warming up is the moment the
+      // real rest should start. (Not while correcting an old set.)
+      if (turningOff && !state.sheet.editingSetId && warmupsLogged(exercise) > 0) {
+        return finishWarmups(exercise);
+      }
       state.sheet.draft.is_warmup = trigger.checked ? 1 : 0;
-      return;
+      return render();
+    }
+
+    case 'warmups-done':
+      readSheetInputs();
+      return finishWarmups(exerciseById(state.sheet.exerciseId));
 
     case 'log-set':
       return logCurrent({ isDrop: false });

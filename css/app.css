@@ -904,6 +904,11 @@ div.place-choose { cursor: default; }
   padding: 0 8px;
 }
 
+/* ---------- warmups ---------- */
+
+.warmups-done { margin: -6px 0 16px; }
+.btn-log.is-warmup { background: var(--surface-2); color: var(--text); border: 1px solid var(--accent); }
+
 /* ---------- sync panel ---------- */
 
 #syncSetup .search,
