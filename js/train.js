@@ -647,8 +647,15 @@ function renderLogSheet() {
 
   const canDrop = logged.length > 0 && !isTime;
 
+  // The warmup switch lives in the button row, next to the thing it changes.
+  const warmupToggle = `
+    <label class="warmup-toggle ${draft.is_warmup ? 'is-on' : ''}">
+      <input type="checkbox" data-act="warmup" ${draft.is_warmup ? 'checked' : ''}>
+      <span>Warmup</span>
+    </label>`;
+
   return `
-    <div class="sheet">
+    <div class="sheet sheet-log">
       <header class="sheet-head">
         <h2>${escapeHTML(exercise.name)}</h2>
         <div class="sheet-head-actions">
@@ -667,8 +674,10 @@ function renderLogSheet() {
         ${targetLine}
         <p class="last-line">${lastLine}</p>`}
 
-      ${weightField}
-      ${repsField}
+      <div class="log-pair">
+        ${weightField}
+        ${repsField}
+      </div>
 
       <div class="field">
         <label>RPE <span class="optional">tap again to clear</span></label>
@@ -679,11 +688,6 @@ function renderLogSheet() {
                   data-act="fail" title="Failed set">F</button>
         </div>
       </div>
-
-      <label class="warmup">
-        <input type="checkbox" data-act="warmup" ${draft.is_warmup ? 'checked' : ''}>
-        <span>Warmup set</span>
-      </label>
 
       ${state.sheet.pendingConfirm ? `
         <div class="weight-confirm">
@@ -700,10 +704,12 @@ function renderLogSheet() {
         </div>` : `
         ${editing ? `
         <div class="log-actions">
+          ${warmupToggle}
           <button class="btn btn-quiet btn-drop" data-act="cancel-edit">Cancel</button>
-          <button class="btn btn-log" data-act="log-set">Save changes</button>
+          <button class="btn btn-log" data-act="log-set">Save</button>
         </div>` : `
         <div class="log-actions">
+          ${warmupToggle}
           <button class="btn btn-log ${draft.is_warmup ? 'is-warmup' : ''}" data-act="log-set">
             ${draft.is_warmup ? 'Log warmup' : 'Log set'}
           </button>
@@ -714,8 +720,8 @@ function renderLogSheet() {
         </div>`}`}
 
       <div class="field notes-field">
-        <label for="fNote">Notes for this exercise today</label>
-        <textarea id="fNote" class="note-input" rows="3"
+        <label for="fNote">Note for today</label>
+        <textarea id="fNote" class="note-input" rows="1"
                   placeholder="e.g. way too light, go up 10 next time"
                   >${escapeHTML(state.sheet.note || '')}</textarea>
       </div>

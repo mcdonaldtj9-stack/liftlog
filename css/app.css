@@ -1164,3 +1164,86 @@ body.kb-open .tabbar { display: none; }
 @media (prefers-color-scheme: light) {
   :root { color-scheme: dark; }
 }
+
+/* ---------- a log sheet that fits one phone screen ----------
+   Measured at the installed app's real viewport (440 x 894). Everything you
+   touch while logging -- rest, weight, reps, RPE, warmup, Log -- has to be in
+   view without scrolling. Tap targets stay at 44px or more. */
+
+/* Any open sheet has its own header with Done, so the app's title bar and tab
+   bar are just duplicate chrome while it's open. */
+body.sheet-open .topbar,
+body.sheet-open .tabbar { display: none; }
+body.sheet-open #main {
+  padding-top: calc(var(--safe-top) + 8px);
+  padding-bottom: calc(var(--safe-bottom) + 16px);
+}
+
+.sheet-log .sheet-head { margin-bottom: 8px; }
+.sheet-log .sheet-head h2 { font-size: 19px; }
+.sheet-log .field { margin-bottom: 10px; }
+.sheet-log .field > label { margin-bottom: 4px; font-size: 13px; }
+
+.sheet-log .rest-bar { margin-bottom: 8px; padding: 6px 12px; }
+.sheet-log .rest-presets .chip { min-height: 44px; }
+.sheet-log .rest-clock { font-size: 22px; }
+.sheet-log .warmups-done { margin: 0 0 8px; min-height: 46px; }
+
+.sheet-log .prior-note { margin-bottom: 8px; padding: 8px 12px; }
+.sheet-log .prior-head { margin-bottom: 2px; font-size: 11px; }
+.sheet-log .prior-note p {
+  font-size: 14px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sheet-log .target-line { margin-bottom: 6px; padding: 8px 12px; gap: 4px 10px; }
+.sheet-log .suggest-chip { min-height: 38px; padding: 6px 12px; }
+.sheet-log .suggest-why { font-size: 12px; line-height: 1.3; }
+.sheet-log .last-line { margin: 0 0 10px; padding: 0 2px; border: 0; background: none; font-size: 13px; }
+
+/* Weight and reps side by side. A time-tracked exercise has only one. */
+/* minmax(0, 1fr) and min-width: 0 matter: a text input won't shrink below its
+   default ~20-character width otherwise, and one field shoves the other off
+   the edge of the screen. */
+.log-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.log-pair > .field { min-width: 0; }
+.log-pair .num { width: 100%; min-width: 0; }
+.log-pair > .field:only-child { grid-column: 1 / -1; }
+.log-pair .stepper { gap: 6px; }
+.log-pair .step { width: 44px; min-height: 52px; font-size: 24px; }
+.log-pair .num { min-height: 52px; padding: 0 2px; font-size: 24px; }
+.log-pair .field-note { margin-top: 4px; font-size: 12px; }
+
+.sheet-log .chips { gap: 6px; margin-bottom: 6px; }
+.sheet-log .chips .chip { min-height: 44px; }
+
+.sheet-log .log-actions { gap: 8px; margin-bottom: 12px; }
+.sheet-log .btn-log { min-height: 54px; }
+.sheet-log .btn-drop { min-height: 54px; padding: 0 14px; }
+
+.warmup-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.warmup-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.warmup-toggle.is-on { border-color: var(--accent); color: var(--accent); }
+
+.sheet-log .notes-field { margin-top: 0; }
+.sheet-log .note-input { min-height: 44px; padding: 10px 12px; font-size: 16px; }
+.sheet-log .note-input:focus { min-height: 88px; }
+.sheet-log .section-label { margin: 12px 0 4px; }
+.sheet-log .set-row { padding: 6px 0; }
