@@ -4,3 +4,6 @@ Thumbs.db
 *.log
 .env
 .env.local
+
+# Local tooling config: holds the Supabase project ref, and this repo is public
+.mcp.json
