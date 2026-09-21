@@ -141,11 +141,12 @@ button { -webkit-tap-highlight-color: transparent; }
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  height: calc(var(--tabbar-h) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  /* No explicit height: let it be the tab content plus the home-indicator
+     inset, so the bar paints all the way to the physical bottom edge whatever
+     that inset resolves to. An opaque background means the padded strip below
+     the labels reads as part of the bar rather than a gap under it. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--surface);
   border-top: 1px solid var(--line);
 }
 
@@ -155,6 +156,7 @@ button { -webkit-tap-highlight-color: transparent; }
   align-items: center;
   justify-content: center;
   gap: 2px;
+  min-height: var(--tabbar-h);
   border: 0;
   background: none;
   color: var(--muted);
