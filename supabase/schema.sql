@@ -22,9 +22,13 @@
 
 -- ---------------------------------------------------------------- helpers
 
+-- search_path is pinned empty so the function can't be hijacked by an object
+-- someone creates earlier on the path. now() lives in pg_catalog, which is
+-- always searched regardless.
 create or replace function public.set_server_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.server_updated_at = now();
