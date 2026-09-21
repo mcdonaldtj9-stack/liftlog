@@ -51,11 +51,12 @@ credentials live in this repo.
    up*. The anon key is public, so this is half the security model.
 3. **Authentication → Users → Add user** → your email and a password, with
    auto-confirm on. This is the only account that will ever exist.
-4. **Project Settings → API** → copy the **Project URL** and the **anon public**
-   key into the app under Settings → Sync, then sign in with the user from
-   step 3.
+4. **Project Settings → API Keys** → copy the **publishable** key (older
+   projects call it the **anon** key) and the project URL into the app under
+   Settings → Sync, then sign in with the user from step 3. Never the secret
+   or `service_role` key.
 
-The anon key is designed to be public in a browser app. What actually protects
+The publishable key is designed to be public in a browser app. What actually protects
 the data is RLS: every row carries a `user_id` and every policy requires it to
 match the signed-in user. With signups disabled, nobody else can obtain a user.
 

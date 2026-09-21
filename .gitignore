@@ -7,3 +7,9 @@ Thumbs.db
 
 # Local tooling config: holds the Supabase project ref, and this repo is public
 .mcp.json
+
+# Agent tooling installed per machine (skills symlink with absolute paths)
+.claude/settings.local.json
+.claude/skills/
+.agents/
+skills-lock.json

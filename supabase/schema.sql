@@ -180,12 +180,22 @@ begin
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists own_rows on public.%I', t);
+    -- (select auth.uid()) rather than bare auth.uid(): Postgres evaluates the
+    -- subselect once per query instead of once per row.
     execute format(
       'create policy own_rows on public.%I
          for all
          to authenticated
-         using (user_id = auth.uid())
-         with check (user_id = auth.uid())', t);
+         using ((select auth.uid()) = user_id)
+         with check ((select auth.uid()) = user_id)', t);
+
+    -- Depending on the project's Data API settings, new tables are not exposed
+    -- to the REST API until a role is granted access. RLS above decides WHICH
+    -- rows; this decides whether the table is reachable at all. Only signed-in
+    -- users get it -- anon gets nothing.
+    execute format(
+      'grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
   end loop;
 end;
 $$;

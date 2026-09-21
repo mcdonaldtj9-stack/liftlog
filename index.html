@@ -75,13 +75,15 @@
       </dl>
 
       <div id="syncSetup" hidden>
-        <p class="hint">From your Supabase project: Settings → API. The anon key
-           is safe to store here — row level security is what protects the data.</p>
+        <p class="hint">From your Supabase project: Project Settings → API Keys.
+           Use the <strong>publishable</strong> key (or the legacy anon key) — never
+           the secret or service_role key. Row level security is what protects
+           the data.</p>
         <input class="search" id="supaUrl" type="url" autocomplete="off"
                autocapitalize="none" spellcheck="false"
                placeholder="https://yourproject.supabase.co">
         <input class="search" id="supaKey" type="text" autocomplete="off"
-               autocapitalize="none" spellcheck="false" placeholder="anon public key">
+               autocapitalize="none" spellcheck="false" placeholder="sb_publishable_… (or legacy anon key)">
         <button class="btn btn-block" id="saveSupa">Save connection</button>
       </div>
 
