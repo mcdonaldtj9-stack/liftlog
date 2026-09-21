@@ -552,6 +552,115 @@ button { -webkit-tap-highlight-color: transparent; }
 .btn-drop { flex: none; min-height: 58px; padding: 0 18px; font-size: 16px; }
 .btn-drop[disabled] { opacity: 0.4; }
 
+/* ---------- weight ---------- */
+
+.wt-reminder { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+.wt-reminder.is-overdue { color: var(--danger); font-weight: 650; }
+
+.wt-hero {
+  margin-bottom: 18px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.wt-hero-label { margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; }
+/* A standalone figure: proportional digits, same sans as everything else. */
+.wt-hero-value {
+  margin: 2px 0 4px;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.wt-hero-value span { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.wt-hero-delta { margin: 0; font-size: 16px; font-weight: 600; }
+.wt-hero-note { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.wt-offsets { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; line-height: 1.45; }
+.wt-offsets li { padding: 3px 0; }
+.wt-muted { color: var(--muted); }
+
+.wt-key {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+.chip .wt-key { margin-right: 6px; }
+.wt-line-key {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 6px;
+  border-radius: 1px;
+  background: #e8edf4;
+  vertical-align: 3px;
+}
+
+.wt-entry { margin-bottom: 22px; }
+.wt-entry .num { width: 100%; }
+.wt-date .search { color-scheme: dark; }
+
+.wt-ranges { display: flex; gap: 8px; margin-bottom: 10px; }
+.wt-ranges .chip { flex: 0 1 auto; padding: 0 14px; min-height: 40px; }
+.wt-readout {
+  min-height: 22px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.wt-readout strong { color: var(--text); font-weight: 650; }
+
+.wt-chart { display: block; max-width: 100%; touch-action: pan-y; }
+.wt-grid { stroke: #232a35; stroke-width: 1; }
+.wt-axis { stroke: #2f3845; stroke-width: 1; }
+.wt-tick { fill: #898781; font-size: 11px; font-variant-numeric: tabular-nums; }
+.wt-trend { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* Ring in the surface colour so dots stay legible where they cross the line. */
+.wt-dot { stroke: var(--bg); stroke-width: 2; }
+.wt-cross { stroke: #5b6574; stroke-width: 1; }
+
+.wt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wt-list { list-style: none; margin: 0; padding: 0; }
+.wt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.wt-row-date { flex: 1; min-width: 0; }
+.wt-row-scale { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.wt-row-lbs { width: 52px; text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.weigh-nudge {
+  display: block;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
 /* ---------- sync panel ---------- */
 
 #syncSetup .search,

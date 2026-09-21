@@ -230,6 +230,47 @@ export async function createTemplateFromWorkout(workout, name) {
   return createTemplate({ name, place_id: workout.place_id || null, exercises });
 }
 
+/* ---------- bodyweight ----------
+   Each reading remembers which scale it came from, because scales disagree and
+   the trend corrects for it. The scale is a place id, or null for "somewhere
+   else". */
+
+export async function listWeights() {
+  const all = await db.getAll('bodyweights');
+  return all.filter(db.isLive).sort((a, b) => a.weighed_at.localeCompare(b.weighed_at));
+}
+
+export async function addWeight({ lbs, place_id = null, weighed_at = db.nowISO() }) {
+  const value = Number(lbs);
+  if (!(value > 0)) throw new Error('Weight needs to be a positive number');
+  const record = db.newRecord({ lbs: value, place_id: place_id || null, weighed_at });
+  await db.put('bodyweights', record);
+  await db.setMeta('last_scale_id', place_id || 'other');
+  return record;
+}
+
+export async function deleteWeight(reading) {
+  const next = db.touch(reading, { deleted: 1 });
+  await db.put('bodyweights', next);
+  return next;
+}
+
+/* Most recent reading on one particular scale — prefill comes from here, not
+   from the last reading overall, since the two scales read differently. */
+export async function lastWeightOn(placeId) {
+  const readings = await listWeights();
+  const wanted = placeId || null;
+  for (let i = readings.length - 1; i >= 0; i--) {
+    if ((readings[i].place_id || null) === wanted) return readings[i];
+  }
+  return null;
+}
+
+export async function lastScaleId() {
+  const value = await db.getMeta('last_scale_id', null);
+  return value === 'other' ? null : value;
+}
+
 /* ---------- strength estimates ---------- */
 
 /* Best recent estimated 1RM for an exercise, or null when nothing in the

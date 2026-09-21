@@ -4,7 +4,7 @@
    Booleans are stored as 0/1 because IndexedDB can't index true/false. */
 
 const DB_NAME = 'liftlog';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const SCHEMA = {
   exercises: {
@@ -49,6 +49,10 @@ const SCHEMA = {
       by_updated: 'updated_at',
       by_dirty: 'dirty',
     },
+  },
+  bodyweights: {
+    keyPath: 'id',
+    indexes: { by_weighed: 'weighed_at', by_updated: 'updated_at', by_dirty: 'dirty' },
   },
   meta: { keyPath: 'key', indexes: {} },
 };

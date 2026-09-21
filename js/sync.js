@@ -39,6 +39,8 @@ const TABLES = [
      'rpe', 'failed', 'is_warmup', 'is_dropset']],
   ['exercise_notes', 'exercise_notes',
     ['id', 'workout_id', 'exercise_id', 'body']],
+  ['bodyweights', 'bodyweights',
+    ['id', 'weighed_at', 'lbs', 'place_id']],
 ];
 
 const COMMON = ['created_at', 'updated_at', 'deleted'];

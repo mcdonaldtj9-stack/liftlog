@@ -556,5 +556,33 @@ check('a stray note on a deleted session is swept at start',
 check('and marked for upload so the server hears about it',
   (await rawGet('exercise_notes', strayNote.id)).dirty === 1);
 
+
+// ---------- bodyweight ----------
+
+check('no weigh-ins to start with', (await store.listWeights()).length === 0);
+await store.addWeight({ lbs: 186.4, place_id: fenton.id, weighed_at: '2026-09-01T12:00:00.000Z' });
+await store.addWeight({ lbs: 188.6, place_id: garage.id, weighed_at: '2026-09-02T12:00:00.000Z' });
+await store.addWeight({ lbs: 186.0, place_id: fenton.id, weighed_at: '2026-09-03T12:00:00.000Z' });
+const weights = await store.listWeights();
+check('weigh-ins are stored in time order',
+  weights.map((w) => w.lbs).join(',') === '186.4,188.6,186');
+check('each remembers its scale', weights[1].place_id === garage.id);
+check('prefill comes from the same scale, not the latest overall',
+  (await store.lastWeightOn(garage.id)).lbs === 188.6
+  && (await store.lastWeightOn(fenton.id)).lbs === 186.0);
+check('the last scale used is remembered', (await store.lastScaleId()) === fenton.id);
+
+await store.addWeight({ lbs: 185, place_id: null });
+check('a reading can come from an unnamed scale', (await store.lastWeightOn(null)).lbs === 185);
+check('and "other" is remembered as no scale', (await store.lastScaleId()) === null);
+
+let badWeight = null;
+try { await store.addWeight({ lbs: 0 }); } catch (error) { badWeight = error; }
+check('a zero weight is refused', badWeight instanceof Error);
+
+await store.deleteWeight(weights[1]);
+check('a deleted weigh-in drops out', (await store.listWeights()).length === 3);
+check('and the scale falls back to nothing', (await store.lastWeightOn(garage.id)) === null);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

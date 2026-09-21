@@ -92,7 +92,7 @@ const db = await import('../js/db.js');
 await store.init();
 
 const handle = await db.open();
-check('upgraded to v3', handle.version === 3, `got ${handle.version}`);
+check('upgraded to the current version', handle.version === 4, `got ${handle.version}`);
 check('routine stores added',
   handle.objectStoreNames.contains('templates') &&
   handle.objectStoreNames.contains('template_exercises'));

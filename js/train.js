@@ -109,6 +109,10 @@ async function refresh() {
   state.recent = state.workout ? [] : await store.recentWorkouts(10);
   state.rest = await rest.load();
   state.templates = await store.listTemplates();
+  const weighIns = state.workout ? [] : await store.listWeights();
+  state.weighInDays = weighIns.length
+    ? Math.round((Date.now() - new Date(weighIns[weighIns.length - 1].weighed_at).getTime()) / 86400000)
+    : null;
   state.lastPlaceId = await store.lastPlaceId();
   state.targets = await store.targetsForWorkout(state.workout);
   state.template = state.workout?.template_id
@@ -164,7 +168,15 @@ function renderIdle() {
       </li>`;
   }).join('');
 
+  // The weekly weigh-in reminder: shown here too, since this is the screen you
+  // actually open.
+  const nudge = state.weighInDays !== null && state.weighInDays >= 7 ? `
+    <button class="weigh-nudge" data-act="go-weight">
+      Last weigh-in was ${state.weighInDays} days ago — log one
+    </button>` : '';
+
   return `
+    ${nudge}
     ${state.templates.length ? `
       <h3 class="section-label">Routines</h3>
       <ul class="routine-list">${templates}</ul>` : `
@@ -886,6 +898,10 @@ async function onClick(event) {
     case 'place':
       state.sheet = { type: 'place' };
       return render();
+
+    case 'go-weight':
+      document.querySelector('.tab[data-view="weight"]')?.click();
+      return;
 
     case 'choose-place':
       state.workout = await store.setWorkoutPlace(state.workout, trigger.dataset.place);

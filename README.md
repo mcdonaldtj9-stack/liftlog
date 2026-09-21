@@ -33,6 +33,12 @@ assume you always train in the same place. This one doesn't.
   with no signal, no server, and no account. A pull never overwrites work that
   hasn't been uploaded yet — what you did on the phone wins, and the next push
   settles it.
+- **Bodyweight that corrects for your scales.** Readings remember which scale
+  they came from. Each scale's bias against your most-used one is measured from
+  weigh-ins taken close together (the median, so one post-dinner reading can't
+  skew it) and removed before the trend is drawn — so alternating between two
+  scales that disagree by 2 lbs doesn't turn into a sawtooth. The headline is
+  the smoothed trend and its change over four weeks, never the latest raw number.
 - **Catches typos.** Before a set is written, an outlier weight (over 5% *and*
   at least 10 lbs above your last working set) or an implausible rep count asks
   you to confirm the actual numbers. Warmups, drop sets and failed attempts are
@@ -93,7 +99,7 @@ silent data bug would cost a logged workout belongs in it.
    plus 1RM-based weight suggestions
 5. GPS auto-detect for locations
 6. ✅ Supabase schema, auth, background sync
-7. Bodyweight + weigh-in nudge
+7. ✅ Bodyweight with per-scale correction, trend, and weigh-in nudge
 8. History, PRs / estimated 1RM, volume charts
 9. Export to a file (the other half of "not only on the phone")
 

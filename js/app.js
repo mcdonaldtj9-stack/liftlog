@@ -1,11 +1,12 @@
 /* LiftLog — app shell: navigation, service-worker install, diagnostics. */
 
 import * as train from './train.js';
+import * as weight from './weight.js';
 import * as rest from './rest.js';
 import * as supa from './supa.js';
 import * as sync from './sync.js';
 
-const BUILD = '14';
+const BUILD = '15';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -26,6 +27,8 @@ function show(name) {
     tab.classList.toggle('is-active', tab.dataset.view === name);
   }
   try { sessionStorage.setItem('view', name); } catch {}
+  // The chart sizes itself to its container, which measures zero while hidden.
+  if (name === 'weight') weight.reload();
 }
 
 document.getElementById('tabbar').addEventListener('click', (e) => {
@@ -130,6 +133,10 @@ document.getElementById('enableNotify')?.addEventListener('click', async () => {
 
 /* ---------- boot ---------- */
 
+weight.mount(document.getElementById('view-weight')).catch((err) => {
+  console.error('[liftlog] weight view failed to start', err);
+});
+
 train.mount(document.getElementById('view-train')).catch((err) => {
   console.error('[liftlog] failed to start', err);
   document.getElementById('view-train').innerHTML =
@@ -187,7 +194,10 @@ async function runSync({ quiet = false } = {}) {
   const result = await sync.syncNow();
 
   if (result.ok) {
-    if (result.pulled > 0) await train.reload();
+    if (result.pulled > 0) {
+      await train.reload();
+      await weight.reload();
+    }
     if (!quiet) {
       setMessage(result.pushed || result.pulled
         ? `Sent ${result.pushed}, received ${result.pulled}.`

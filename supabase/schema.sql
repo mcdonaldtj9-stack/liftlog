@@ -137,6 +137,18 @@ create table if not exists public.exercise_notes (
   server_updated_at timestamptz not null default now()
 );
 
+create table if not exists public.bodyweights (
+  id                uuid primary key,
+  user_id           uuid not null default auth.uid() references auth.users on delete cascade,
+  weighed_at        text not null,
+  lbs               numeric(6,2) not null,
+  place_id          uuid,
+  created_at        text not null,
+  updated_at        text not null,
+  deleted           smallint not null default 0,
+  server_updated_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------- triggers
 
 do $$
@@ -145,7 +157,7 @@ declare
 begin
   foreach t in array array[
     'exercises', 'places', 'templates', 'template_exercises',
-    'workouts', 'sets', 'exercise_notes'
+    'workouts', 'sets', 'exercise_notes', 'bodyweights'
   ]
   loop
     execute format(
@@ -166,6 +178,7 @@ create index if not exists template_exercises_sync_idx on public.template_exerci
 create index if not exists workouts_sync_idx           on public.workouts (user_id, server_updated_at);
 create index if not exists sets_sync_idx               on public.sets (user_id, server_updated_at);
 create index if not exists exercise_notes_sync_idx     on public.exercise_notes (user_id, server_updated_at);
+create index if not exists bodyweights_sync_idx        on public.bodyweights (user_id, server_updated_at);
 
 -- ---------------------------------------------------------------- row level security
 --
@@ -179,7 +192,7 @@ declare
 begin
   foreach t in array array[
     'exercises', 'places', 'templates', 'template_exercises',
-    'workouts', 'sets', 'exercise_notes'
+    'workouts', 'sets', 'exercise_notes', 'bodyweights'
   ]
   loop
     execute format('alter table public.%I enable row level security', t);
