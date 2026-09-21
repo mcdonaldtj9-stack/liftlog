@@ -315,5 +315,103 @@ const weightOnly = checkSet(
 check('only the weight is flagged when only it is odd',
   weightOnly.length === 1 && weightOnly[0].kind === 'weight');
 
+
+// ---------- routines ----------
+
+const press = seeded.find((e) => e.name === 'Overhead Press');
+const pushdown = seeded.find((e) => e.name === 'Tricep Pushdown');
+const pecDeck = seeded.find((e) => e.name === 'Pec Deck');
+
+const pushPF = await store.createTemplate({
+  name: 'Push', place_id: fenton.id,
+  exerciseIds: [bench.id, press.id, pushdown.id],
+});
+check('creates a routine', pushPF.name === 'Push' && pushPF.place_id === fenton.id);
+
+const listed = await store.templateExercises(pushPF.id);
+check('keeps the exercises in order',
+  listed.map((e) => e.exercise.name).join(' / ') === 'Barbell Bench Press / Overhead Press / Tricep Pushdown',
+  listed.map((e) => e.exercise.name).join(' / '));
+
+// The same day at a different gym is its own routine.
+const pushGarage = await store.createTemplate({
+  name: 'Push', place_id: garage.id, exerciseIds: [bench.id, press.id],
+});
+check('the same name can exist per location', pushGarage.id !== pushPF.id);
+check('routines list separately', (await store.listTemplates()).length === 2);
+
+// Reordering and swapping.
+await store.setTemplateExercises(pushPF.id, [press.id, bench.id, pecDeck.id]);
+const reordered = await store.templateExercises(pushPF.id);
+check('reorders and swaps exercises',
+  reordered.map((e) => e.exercise.name).join(' / ') === 'Overhead Press / Barbell Bench Press / Pec Deck',
+  reordered.map((e) => e.exercise.name).join(' / '));
+check('the dropped exercise is gone', reordered.length === 3);
+
+await store.setTemplateExercises(pushPF.id, [press.id, press.id, bench.id]);
+check('duplicates collapse', (await store.templateExercises(pushPF.id)).length === 2);
+await store.setTemplateExercises(pushPF.id, [bench.id, press.id, pushdown.id]);
+
+// A deleted exercise must not leave a blank row behind.
+const doomed = await store.createExercise({ name: 'Machine That Broke' });
+await store.setTemplateExercises(pushGarage.id, [bench.id, doomed.id]);
+check('routine holds both before deletion',
+  (await store.templateExercises(pushGarage.id)).length === 2);
+await store.deleteExercise(await store.findExercise('Machine That Broke'));
+check('a deleted exercise drops out of the routine',
+  (await store.templateExercises(pushGarage.id)).length === 1);
+
+// ---------- starting from a routine ----------
+
+await store.discardWorkout(await store.getActiveWorkout());
+check('discarding nothing is harmless', (await store.discardWorkout(null)) === null);
+const fromTemplate = await store.startWorkout({ templateId: pushPF.id });
+check('session records which routine it came from', fromTemplate.template_id === pushPF.id);
+check('session is pre-loaded with the exercises',
+  fromTemplate.plan.join(',') === [bench.id, press.id, pushdown.id].join(','));
+check('session takes the routine location', fromTemplate.place_id === fenton.id);
+
+// Adding and removing exercises during the session.
+const withExtra = await store.addToPlan(fromTemplate, pecDeck.id);
+check('an added exercise joins the plan', withExtra.plan.length === 4);
+check('adding twice is a no-op',
+  (await store.addToPlan(withExtra, pecDeck.id)).plan.length === 4);
+const trimmed = await store.removeFromPlan(withExtra, pushdown.id);
+check('an exercise can be dropped from the plan',
+  trimmed.plan.join(',') === [bench.id, press.id, pecDeck.id].join(','));
+
+check('starting is still idempotent while a session is open',
+  (await store.startWorkout({ templateId: pushGarage.id })).id === fromTemplate.id);
+
+// ---------- saving a session as a routine ----------
+
+await store.addSet({ workout_id: trimmed.id, exercise_id: bench.id, weight: 185, reps: 8 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: trimmed.id, exercise_id: bench.id, weight: 185, reps: 7, is_dropset: 1 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: trimmed.id, exercise_id: press.id, weight: 95, reps: 8 });
+
+const saved = await store.createTemplateFromWorkout(
+  await store.getActiveWorkout(), 'Push (saved)');
+const savedList = await store.templateExercises(saved.id);
+check('a session becomes a routine',
+  savedList.map((e) => e.exercise.name).join(' / ') === 'Barbell Bench Press / Overhead Press',
+  savedList.map((e) => e.exercise.name).join(' / '));
+check('a drop set does not duplicate its exercise', savedList.length === 2);
+check('the routine inherits the session location', saved.place_id === fenton.id);
+check('planned-but-unused exercises are left out',
+  !savedList.some((e) => e.exercise.id === pecDeck.id));
+
+// ---------- deleting a routine ----------
+
+const before = (await store.listTemplates()).length;
+await store.deleteTemplate(saved);
+check('deleting removes it from the list',
+  (await store.listTemplates()).length === before - 1);
+check('and takes its exercise rows with it',
+  (await store.templateExercises(saved.id)).length === 0);
+
+await store.discardWorkout(await store.getActiveWorkout());
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

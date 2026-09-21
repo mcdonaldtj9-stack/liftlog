@@ -19,9 +19,13 @@ const state = {
   sets: [],
   exercises: [],
   usage: new Map(),
-  sheet: null,      // null | {type:'picker'|'log'|'place', ...}
+  sheet: null,      // null | {type:'picker'|'log'|'place'|'template', ...}
   confirmFinish: false,
   recent: [],
+  templates: [],
+  template: null,        // the routine this session was started from
+  templateDraft: null,   // survives the picker opening on top of the editor
+  lastPlaceId: null,
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
 };
@@ -103,12 +107,35 @@ async function refresh() {
   state.sets = state.workout ? await store.setsForWorkout(state.workout.id) : [];
   state.recent = state.workout ? [] : await store.recentWorkouts(10);
   state.rest = await rest.load();
+  state.templates = await store.listTemplates();
+  state.lastPlaceId = await store.lastPlaceId();
+  state.template = state.workout?.template_id
+    ? state.templates.find((t) => t.id === state.workout.template_id) || null
+    : null;
   state.place = state.workout?.place_id
     ? state.places.find((p) => p.id === state.workout.place_id) || null
     : null;
 }
 
 /* ---------- rendering ---------- */
+
+function placeName(placeId) {
+  return state.places.find((p) => p.id === placeId)?.name || null;
+}
+
+/* Routines you'd use where you trained last come first, then the ones that
+   aren't tied to a gym, then everything else. */
+function sortedTemplates() {
+  const rank = (template) => {
+    if (template.place_id && template.place_id === state.lastPlaceId) return 0;
+    if (!template.place_id) return 1;
+    return 2;
+  };
+  return [...state.templates].sort((a, b) =>
+    rank(a) - rank(b) ||
+    (a.position ?? 0) - (b.position ?? 0) ||
+    a.name.localeCompare(b.name));
+}
 
 function renderIdle() {
   const recent = state.recent.map((workout) => `
@@ -119,30 +146,55 @@ function renderIdle() {
         : ''}</span>
     </li>`).join('');
 
+  const templates = sortedTemplates().map((template) => {
+    const where = placeName(template.place_id);
+    const here = template.place_id && template.place_id === state.lastPlaceId;
+    return `
+      <li class="routine">
+        <button class="routine-go" data-act="start-template" data-template="${template.id}">
+          <span class="routine-name">${escapeHTML(template.name)}</span>
+          <span class="routine-where ${here ? 'here' : ''}">
+            ${where ? escapeHTML(where) : 'any location'}
+          </span>
+        </button>
+        <button class="routine-edit" data-act="edit-template" data-template="${template.id}"
+                aria-label="Edit routine">Edit</button>
+      </li>`;
+  }).join('');
+
   return `
-    <button class="btn btn-block" data-act="start">Start workout</button>
+    ${state.templates.length ? `
+      <h3 class="section-label">Routines</h3>
+      <ul class="routine-list">${templates}</ul>` : `
+      <p class="hint center">Group your exercises into routines — a Push day, a
+         Pull day — and start one in a tap. You can also finish a session and
+         save it as a routine.</p>`}
+
+    <button class="btn btn-block" data-act="start">Start empty workout</button>
+    <button class="btn btn-quiet btn-block" data-act="new-template">+ New routine</button>
+
     ${state.recent.length ? `
       <h3 class="section-label">Recent sessions</h3>
-      <ul class="card-list">${recent}</ul>` : `
-      <p class="hint center">No sessions yet. Tap start and add your first exercise.</p>`}
+      <ul class="card-list">${recent}</ul>` : ''}
   `;
 }
 
 function renderActive() {
-  // Group this session's sets by exercise, in the order each first appeared.
-  const order = [];
   const byExercise = new Map();
   for (const set of state.sets) {
-    if (!byExercise.has(set.exercise_id)) {
-      byExercise.set(set.exercise_id, []);
-      order.push(set.exercise_id);
-    }
+    if (!byExercise.has(set.exercise_id)) byExercise.set(set.exercise_id, []);
     byExercise.get(set.exercise_id).push(set);
   }
 
+  // The plan is the running order. Anything logged outside it — an exercise
+  // added before this build, or one whose block was removed — still shows.
+  const plan = state.workout.plan || [];
+  const extras = [...byExercise.keys()].filter((id) => !plan.includes(id));
+  const order = [...plan, ...extras];
+
   const blocks = order.map((exerciseId) => {
     const exercise = exerciseById(exerciseId);
-    const sets = byExercise.get(exerciseId);
+    const sets = byExercise.get(exerciseId) || [];
     const rows = sets.map((set) => `
       <li class="set-row${set.is_dropset ? ' is-drop' : ''}">
         <span class="set-n">${set.is_dropset ? '↳' : set.set_index}</span>
@@ -152,14 +204,19 @@ function renderActive() {
       </li>`).join('');
 
     return `
-      <section class="ex-block">
+      <section class="ex-block${sets.length ? '' : ' is-planned'}">
         <header class="ex-head">
           <h3>${escapeHTML(exercise?.name || 'Unknown exercise')}</h3>
-          <span class="ex-count">${sets.length} ${sets.length === 1 ? 'set' : 'sets'}</span>
+          ${sets.length
+            ? `<span class="ex-count">${sets.length} ${sets.length === 1 ? 'set' : 'sets'}</span>`
+            // Only offer removal while nothing is logged: dropping a block that
+            // holds sets is a destructive act, and belongs elsewhere.
+            : `<button class="ex-remove" data-act="unplan" data-ex="${exerciseId}"
+                       aria-label="Remove from this session">×</button>`}
         </header>
         <ul class="set-list">${rows}</ul>
         <button class="btn btn-quiet btn-block" data-act="log" data-ex="${exerciseId}">
-          Add set
+          ${sets.length ? 'Add set' : 'Start this exercise'}
         </button>
       </section>`;
   }).join('');
@@ -171,13 +228,24 @@ function renderActive() {
         <button class="btn btn-quiet" data-act="cancel-finish">Keep going</button>
         <button class="btn" data-act="confirm-finish">Finish</button>
       </div>
+      ${state.template ? '' : `
+        <div class="save-routine">
+          <input class="search" id="routineName" type="text" autocomplete="off"
+                 autocapitalize="words" placeholder="Save as a routine, e.g. Push">
+          <button class="btn btn-quiet btn-block" data-act="finish-save">
+            Finish &amp; save as routine
+          </button>
+        </div>`}
       <button class="btn-link danger" data-act="discard">Discard session</button>
     </div>` : `
     <button class="btn btn-quiet btn-block" data-act="finish">Finish session</button>`;
 
   return `
     <div class="session-bar">
-      <span class="session-clock" id="sessionClock">${formatElapsed(state.workout.started_at)}</span>
+      <div class="session-id">
+        <span class="session-clock" id="sessionClock">${formatElapsed(state.workout.started_at)}</span>
+        ${state.template ? `<span class="session-routine">${escapeHTML(state.template.name)}</span>` : ''}
+      </div>
       <button class="place-pick" data-act="place">
         ${state.place ? escapeHTML(state.place.name) : 'Set location'}
       </button>
@@ -210,6 +278,75 @@ function renderPlaceSheet() {
       <input class="search" id="newPlace" type="text" autocomplete="off"
              autocapitalize="words" placeholder="Add another location">
       <button class="btn btn-quiet btn-block" data-act="create-place">Add location</button>
+    </div>`;
+}
+
+function renderTemplateSheet() {
+  const draft = state.templateDraft;
+  const rows = draft.exerciseIds.map((id, i) => {
+    const exercise = exerciseById(id);
+    return `
+      <li class="routine-ex">
+        <span class="routine-ex-name">${escapeHTML(exercise?.name || 'Removed exercise')}</span>
+        <button class="routine-ex-btn" data-act="tpl-up" data-i="${i}"
+                ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button class="routine-ex-btn" data-act="tpl-down" data-i="${i}"
+                ${i === draft.exerciseIds.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+        <button class="routine-ex-btn danger" data-act="tpl-remove" data-i="${i}"
+                aria-label="Remove">×</button>
+      </li>`;
+  }).join('');
+
+  const placeChips = [
+    `<button class="chip ${!draft.placeId ? 'is-on' : ''}" data-act="tpl-place" data-place="">
+       Any</button>`,
+    ...state.places.map((place) => `
+      <button class="chip ${draft.placeId === place.id ? 'is-on' : ''}"
+              data-act="tpl-place" data-place="${place.id}">
+        ${escapeHTML(place.name.replace('Planet Fitness — ', 'PF '))}
+      </button>`),
+  ].join('');
+
+  return `
+    <div class="sheet">
+      <header class="sheet-head">
+        <h2>${draft.id ? 'Edit routine' : 'New routine'}</h2>
+        <button class="btn-link" data-act="tpl-cancel">Cancel</button>
+      </header>
+
+      <div class="field">
+        <label for="tplName">Name</label>
+        <input class="search" id="tplName" type="text" autocomplete="off"
+               autocapitalize="words" placeholder="Push, Pull, Legs…"
+               value="${escapeHTML(draft.name)}">
+      </div>
+
+      <div class="field">
+        <label>Location <span class="optional">keeps gym-specific versions apart</span></label>
+        <div class="chips chips-wrap">${placeChips}</div>
+      </div>
+
+      <div class="field">
+        <label>Exercises, in order</label>
+        ${draft.exerciseIds.length
+          ? `<ul class="routine-ex-list">${rows}</ul>`
+          : '<p class="hint">Nothing added yet.</p>'}
+        <button class="btn btn-quiet btn-block" data-act="tpl-add">+ Add exercise</button>
+      </div>
+
+      <button class="btn btn-block" data-act="tpl-save">
+        ${draft.id ? 'Save changes' : 'Create routine'}
+      </button>
+
+      ${draft.id ? (draft.confirmDelete ? `
+        <div class="confirm">
+          <p>Delete this routine? Your logged sessions aren't affected.</p>
+          <div class="confirm-actions">
+            <button class="btn btn-quiet" data-act="tpl-delete-cancel">Keep it</button>
+            <button class="btn btn-danger" data-act="tpl-delete-confirm">Delete</button>
+          </div>
+        </div>` : `
+        <button class="btn-link danger" data-act="tpl-delete">Delete routine</button>`) : ''}
     </div>`;
 }
 
@@ -424,6 +561,7 @@ export function render() {
 
   let html;
   if (state.sheet?.type === 'picker') html = renderPicker();
+  else if (state.sheet?.type === 'template') html = renderTemplateSheet();
   else if (state.sheet?.type === 'place') html = renderPlaceSheet();
   else if (state.sheet?.type === 'log') html = renderLogSheet();
   else if (state.workout) html = renderActive();
@@ -562,6 +700,11 @@ function onInput(event) {
     return;
   }
 
+  if (target.id === 'tplName') {
+    state.templateDraft.name = target.value;
+    return;
+  }
+
   // Never re-render on note input; it would drop the caret mid-sentence.
   if (target.id === 'fNote') {
     state.sheet.note = target.value;
@@ -683,6 +826,12 @@ async function onClick(event) {
     }
 
     case 'close':
+      // Cancelling the picker while building a routine returns to the editor
+      // rather than throwing away what's been assembled.
+      if (state.sheet?.mode === 'template') {
+        state.sheet = { type: 'template' };
+        return render();
+      }
       if (state.sheet?.type === 'log') {
         readSheetInputs();
         await saveNoteNow();
@@ -691,15 +840,154 @@ async function onClick(event) {
       await refresh();
       return render();
 
-    case 'choose':
-      return openLogSheet(trigger.dataset.ex);
+    case 'choose': {
+      const id = trigger.dataset.ex;
+      if (state.sheet.mode === 'template') {
+        if (!state.templateDraft.exerciseIds.includes(id)) {
+          state.templateDraft.exerciseIds.push(id);
+        }
+        state.sheet = { type: 'template' };
+        return render();
+      }
+      state.workout = await store.addToPlan(state.workout, id);
+      return openLogSheet(id);
+    }
 
     case 'create': {
       const name = (state.sheet.query || '').trim();
       if (!name) return;
       const exercise = await store.createExercise({ name });
       state.exercises = await store.listExercises();
+
+      if (state.sheet.mode === 'template') {
+        if (!state.templateDraft.exerciseIds.includes(exercise.id)) {
+          state.templateDraft.exerciseIds.push(exercise.id);
+        }
+        state.sheet = { type: 'template' };
+        return render();
+      }
+      state.workout = await store.addToPlan(state.workout, exercise.id);
       return openLogSheet(exercise.id);
+    }
+
+    /* ---------- routines ---------- */
+
+    case 'start-template': {
+      state.workout = await store.startWorkout({ templateId: trigger.dataset.template });
+      await refresh();
+      return render();
+    }
+
+    case 'new-template':
+      state.templateDraft = {
+        id: null, name: '', placeId: state.lastPlaceId, exerciseIds: [], confirmDelete: false,
+      };
+      state.sheet = { type: 'template' };
+      return render();
+
+    case 'edit-template': {
+      const template = state.templates.find((t) => t.id === trigger.dataset.template);
+      if (!template) return;
+      const entries = await store.templateExercises(template.id);
+      state.templateDraft = {
+        id: template.id,
+        name: template.name,
+        placeId: template.place_id,
+        exerciseIds: entries.map((e) => e.exercise.id),
+        confirmDelete: false,
+      };
+      state.sheet = { type: 'template' };
+      return render();
+    }
+
+    case 'tpl-add':
+      state.sheet = { type: 'picker', query: '', mode: 'template' };
+      return render();
+
+    case 'tpl-place':
+      state.templateDraft.placeId = trigger.dataset.place || null;
+      return render();
+
+    case 'tpl-up':
+    case 'tpl-down': {
+      const i = Number(trigger.dataset.i);
+      const to = act === 'tpl-up' ? i - 1 : i + 1;
+      const ids = state.templateDraft.exerciseIds;
+      if (to < 0 || to >= ids.length) return;
+      [ids[i], ids[to]] = [ids[to], ids[i]];
+      return render();
+    }
+
+    case 'tpl-remove':
+      state.templateDraft.exerciseIds.splice(Number(trigger.dataset.i), 1);
+      return render();
+
+    case 'tpl-save': {
+      const nameField = root.querySelector('#tplName');
+      if (nameField) state.templateDraft.name = nameField.value;
+      const name = state.templateDraft.name.trim();
+      if (!name) {
+        nameField?.focus();
+        return;
+      }
+      const { id, placeId, exerciseIds } = state.templateDraft;
+      if (id) {
+        const template = state.templates.find((t) => t.id === id);
+        await store.updateTemplate(template, { name, place_id: placeId });
+        await store.setTemplateExercises(id, exerciseIds);
+      } else {
+        await store.createTemplate({ name, place_id: placeId, exerciseIds });
+      }
+      state.templateDraft = null;
+      state.sheet = null;
+      await refresh();
+      return render();
+    }
+
+    case 'tpl-cancel':
+      state.templateDraft = null;
+      state.sheet = null;
+      await refresh();
+      return render();
+
+    case 'tpl-delete':
+      state.templateDraft.confirmDelete = true;
+      return render();
+
+    case 'tpl-delete-cancel':
+      state.templateDraft.confirmDelete = false;
+      return render();
+
+    case 'tpl-delete-confirm': {
+      const template = state.templates.find((t) => t.id === state.templateDraft.id);
+      if (template) await store.deleteTemplate(template);
+      state.templateDraft = null;
+      state.sheet = null;
+      await refresh();
+      return render();
+    }
+
+    case 'unplan': {
+      state.workout = await store.removeFromPlan(state.workout, trigger.dataset.ex);
+      await refresh();
+      return render();
+    }
+
+    case 'finish-save': {
+      const field = root.querySelector('#routineName');
+      const name = field?.value.trim();
+      if (!name) {
+        field?.focus();
+        return;
+      }
+      await store.createTemplateFromWorkout(state.workout, name);
+      await store.finishWorkout(state.workout);
+      await rest.stop();
+      state.rest.endsAt = null;
+      state.confirmFinish = false;
+      state.sheet = null;
+      await refresh();
+      return render();
     }
 
     case 'log':

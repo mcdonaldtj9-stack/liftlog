@@ -57,6 +57,10 @@ async function seedPlaces() {
 
 /* ---------- places ---------- */
 
+export function lastPlaceId() {
+  return db.getMeta('last_place_id', null);
+}
+
 export async function listPlaces() {
   const all = await db.getAll('places');
   return all.filter(db.isLive).sort((a, b) => a.name.localeCompare(b.name));
@@ -75,6 +79,124 @@ export async function setWorkoutPlace(workout, placeId) {
   await db.put('workouts', next);
   // You're usually back at the same gym, so make it the default next time.
   if (placeId) await db.setMeta('last_place_id', placeId);
+  return next;
+}
+
+/* ---------- templates ----------
+   A template is a named exercise list — your Push day, your Pull day. It can
+   belong to a location, because the same day is a different list of exercises
+   at a commercial gym than it is in a garage. */
+
+export async function listTemplates() {
+  const all = await db.getAll('templates');
+  return all.filter(db.isLive).sort((a, b) =>
+    (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name));
+}
+
+export async function getTemplate(id) {
+  const row = await db.get('templates', id);
+  return db.isLive(row) ? row : null;
+}
+
+/* Ordered exercises for a template, with any since-deleted exercise dropped
+   rather than rendering as a blank row. */
+export async function templateExercises(templateId) {
+  const rows = (await db.getAllByIndex('template_exercises', 'by_template', templateId))
+    .filter(db.isLive)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  const exercises = new Map((await listExercises()).map((e) => [e.id, e]));
+  return rows
+    .map((row) => ({ row, exercise: exercises.get(row.exercise_id) || null }))
+    .filter((entry) => entry.exercise);
+}
+
+export async function setTemplateExercises(templateId, exerciseIds) {
+  const wanted = [...new Set(exerciseIds)];
+  const existing = (await db.getAllByIndex('template_exercises', 'by_template', templateId))
+    .filter(db.isLive);
+  const byExercise = new Map(existing.map((row) => [row.exercise_id, row]));
+
+  const writes = [];
+  wanted.forEach((exerciseId, position) => {
+    const row = byExercise.get(exerciseId);
+    if (row) {
+      writes.push(db.touch(row, { position }));
+      byExercise.delete(exerciseId);
+    } else {
+      writes.push(db.newRecord({ template_id: templateId, exercise_id: exerciseId, position }));
+    }
+  });
+  // Whatever is left was removed from the template.
+  for (const orphan of byExercise.values()) writes.push(db.touch(orphan, { deleted: 1 }));
+
+  if (writes.length) await db.putMany('template_exercises', writes);
+  return wanted;
+}
+
+export async function createTemplate({ name, place_id = null, exerciseIds = [] }) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw new Error('Template needs a name');
+
+  const siblings = await listTemplates();
+  const record = db.newRecord({
+    name: trimmed,
+    place_id: place_id || null,
+    position: siblings.length,
+  });
+  await db.put('templates', record);
+  await setTemplateExercises(record.id, exerciseIds);
+  return record;
+}
+
+export async function updateTemplate(template, changes) {
+  const next = db.touch(template, changes);
+  await db.put('templates', next);
+  return next;
+}
+
+export async function deleteTemplate(template) {
+  const rows = (await db.getAllByIndex('template_exercises', 'by_template', template.id))
+    .filter(db.isLive);
+  if (rows.length) {
+    await db.putMany('template_exercises', rows.map((r) => db.touch(r, { deleted: 1 })));
+  }
+  const next = db.touch(template, { deleted: 1 });
+  await db.put('templates', next);
+  return next;
+}
+
+/* Build a template out of a session you've already done — far quicker than
+   assembling one by hand, and the order is the order you actually trained in. */
+export async function createTemplateFromWorkout(workout, name) {
+  const sets = await setsForWorkout(workout.id);
+  const fromSets = [...new Set(sets.map((s) => s.exercise_id))];
+  // plan order wins where it exists; anything logged outside it is appended.
+  const planned = (workout.plan || []).filter((id) => fromSets.includes(id));
+  const extra = fromSets.filter((id) => !planned.includes(id));
+
+  return createTemplate({
+    name,
+    place_id: workout.place_id || null,
+    exerciseIds: [...planned, ...extra],
+  });
+}
+
+/* ---------- the session's exercise list ---------- */
+
+export async function addToPlan(workout, exerciseId) {
+  const plan = workout.plan || [];
+  if (plan.includes(exerciseId)) return workout;
+  const next = db.touch(workout, { plan: [...plan, exerciseId] });
+  await db.put('workouts', next);
+  return next;
+}
+
+export async function removeFromPlan(workout, exerciseId) {
+  const plan = workout.plan || [];
+  if (!plan.includes(exerciseId)) return workout;
+  const next = db.touch(workout, { plan: plan.filter((id) => id !== exerciseId) });
+  await db.put('workouts', next);
   return next;
 }
 
@@ -133,28 +255,43 @@ export async function getActiveWorkout() {
   return open[0] || null;
 }
 
-export async function startWorkout() {
+export async function startWorkout({ templateId = null } = {}) {
   const existing = await getActiveWorkout();
   if (existing) return existing;
+
+  let plan = [];
+  let template = null;
+  if (templateId) {
+    template = await getTemplate(templateId);
+    if (template) {
+      plan = (await templateExercises(templateId)).map((entry) => entry.exercise.id);
+    }
+  }
 
   const record = db.newRecord({
     started_at: db.nowISO(),
     ended_at: null,
-    place_id: await db.getMeta('last_place_id', null),
-    template_id: null,
+    // A template that belongs to a gym sets the location too, so starting the
+    // day is one tap rather than two.
+    place_id: template?.place_id || await db.getMeta('last_place_id', null),
+    template_id: template?.id || null,
+    plan,
     notes: '',
   });
   await db.put('workouts', record);
+  if (record.place_id) await db.setMeta('last_place_id', record.place_id);
   return record;
 }
 
 export async function finishWorkout(workout) {
+  if (!workout) return null;
   const next = db.touch(workout, { ended_at: db.nowISO() });
   await db.put('workouts', next);
   return next;
 }
 
 export async function discardWorkout(workout) {
+  if (!workout) return null;
   const sets = await setsForWorkout(workout.id);
   if (sets.length) {
     await db.putMany('sets', sets.map((s) => db.touch(s, { deleted: 1 })));

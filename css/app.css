@@ -552,6 +552,116 @@ button { -webkit-tap-highlight-color: transparent; }
 .btn-drop { flex: none; min-height: 58px; padding: 0 18px; font-size: 16px; }
 .btn-drop[disabled] { opacity: 0.4; }
 
+/* ---------- routines ---------- */
+
+.routine-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.routine {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.routine-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 62px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.routine-go:active { background: var(--surface-2); }
+.routine-name { font-size: 17px; font-weight: 650; }
+.routine-where { font-size: 13px; color: var(--muted); }
+.routine-where.here { color: var(--accent); }
+.routine-edit {
+  flex: none;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.routine-ex-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.routine-ex {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.routine-ex:last-child { border-bottom: 0; }
+.routine-ex-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.routine-ex-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+.routine-ex-btn[disabled] { opacity: 0.3; }
+.routine-ex-btn.danger { color: var(--danger); }
+
+.chips-wrap { flex-wrap: wrap; }
+.chips-wrap .chip { flex: 0 1 auto; padding: 0 14px; }
+
+.save-routine { margin-top: 14px; }
+.save-routine .search { margin-bottom: 10px; }
+.save-routine .btn { margin: 0; }
+
+/* A planned exercise with nothing logged against it yet. */
+.ex-block.is-planned { border-style: dashed; }
+.ex-block.is-planned .ex-head h3 { color: var(--muted); }
+.ex-remove {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: -6px -6px -6px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ex-remove:active { color: var(--danger); }
+
+.session-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.session-routine {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-bar { align-items: center; }
+
 /* ---------- weight sanity check ---------- */
 
 .btn-danger { background: var(--danger); color: #fff; }

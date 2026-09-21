@@ -1,6 +1,5 @@
-/* The phone already has a v1 database with real sessions in it. Opening at v2
-   must add the new stores without touching what's there, so this builds a v1
-   database by hand, then lets the app open it. */
+/* A v1 database — the very first release — opened by the current build.
+   Everything in it must survive the jump straight to the latest schema. */
 
 import 'fake-indexeddb/auto';
 
@@ -72,10 +71,10 @@ const db = await import('../js/db.js');
 await store.init();
 
 const handle = await db.open();
-check('database upgraded to v2', handle.version === 2, `got ${handle.version}`);
-check('new stores created',
-  handle.objectStoreNames.contains('places') &&
-  handle.objectStoreNames.contains('exercise_notes'));
+check('database upgraded to the current version', handle.version === 3, `got ${handle.version}`);
+check('every later store was created',
+  ['places', 'exercise_notes', 'templates', 'template_exercises']
+    .every((name) => handle.objectStoreNames.contains(name)));
 
 const workouts = await db.getAll('workouts');
 check('existing workout survived', workouts.length === 1 && workouts[0].id === 'w-1');

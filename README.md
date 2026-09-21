@@ -12,6 +12,10 @@ assume you always train in the same place. This one doesn't.
 ## Design rules
 
 - **Unlimited custom exercises.** No cap, no upsell.
+- **Routines.** Group exercises into the days you actually run — Push, Pull,
+  Legs. A routine can belong to a gym, so the Planet Fitness version and the
+  garage version live side by side under the same name. Finish a session and
+  save it as a routine rather than building one by hand.
 - **RPE on every set.** 6–10 in half steps, optional so warmups skip it.
 - **Gym-aware.** Notes you write against an exercise come back the next time you
   do it at that same gym. Location is picked by hand today; GPS auto-detect is
@@ -52,11 +56,12 @@ silent data bug would cost a logged workout belongs in it.
 1. ✅ App shell, manifest, service worker, deploy
 2. ✅ Exercises + set logging with RPE (local only)
 3. ✅ Rest timer, drop sets, failed sets, per-exercise notes, manual locations
-   plus a confirmation step on outlier weights
-4. GPS auto-detect for locations
-5. Supabase schema, auth, sync queue
-6. Bodyweight + weigh-in nudge
-7. History, PRs / estimated 1RM, volume charts
+   plus a confirmation step on outlier weights and rep counts
+4. ✅ Routines (templates), optionally per location
+5. GPS auto-detect for locations
+6. Supabase schema, auth, sync queue
+7. Bodyweight + weigh-in nudge
+8. History, PRs / estimated 1RM, volume charts
 
 ## Notes
 
