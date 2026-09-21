@@ -9,7 +9,7 @@ import * as sync from './sync.js';
 import * as backup from './export.js';
 import * as db from './db.js';
 
-const BUILD = '20';
+const BUILD = '21';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
