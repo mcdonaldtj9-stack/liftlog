@@ -1,7 +1,7 @@
 /* LiftLog service worker.
    Bump CACHE on every deploy — that's what evicts the old build. */
 
-const CACHE = 'liftlog-v3';
+const CACHE = 'liftlog-v4';
 
 const SHELL = [
   './',

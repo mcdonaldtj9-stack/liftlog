@@ -2,7 +2,7 @@
 
 import * as train from './train.js';
 
-const BUILD = '3';
+const BUILD = '4';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -57,6 +57,32 @@ const standalone =
   window.matchMedia('(display-mode: standalone)').matches ||
   window.navigator.standalone === true;
 setText('displayMode', standalone ? 'Installed ✓' : 'In browser');
+
+/* getPropertyValue on a custom property hands back the literal "env(...)"
+   string, so measure a probe element instead to get the resolved pixels. */
+function resolvedInset(side) {
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    `position:fixed;left:-9999px;top:0;width:0;` +
+    `height:env(safe-area-inset-${side},0px);`;
+  document.body.appendChild(probe);
+  const px = probe.getBoundingClientRect().height;
+  probe.remove();
+  return Math.round(px);
+}
+
+function reportGeometry() {
+  setText('safeArea',
+    `t${resolvedInset('top')} b${resolvedInset('bottom')} ` +
+    `l${resolvedInset('left')} r${resolvedInset('right')}`);
+  setText('viewportSize', `${window.innerWidth}×${window.innerHeight}`);
+  setText('screenSize',
+    `${screen.width}×${screen.height} @${window.devicePixelRatio}`);
+}
+
+reportGeometry();
+window.addEventListener('resize', reportGeometry);
+window.addEventListener('orientationchange', reportGeometry);
 
 if (navigator.storage?.persist) {
   navigator.storage.persisted()
