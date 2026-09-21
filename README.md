@@ -40,6 +40,12 @@ assume you always train in the same place. This one doesn't.
   skew it) and removed before the trend is drawn — so alternating between two
   scales that disagree by 2 lbs doesn't turn into a sawtooth. The headline is
   the smoothed trend and its change over four weeks, never the latest raw number.
+- **Tells you when to go up.** If last session hit every target set at RPE 8
+  or lower, the next one offers +5 lbs (+2.5 on light work). No RPE, no
+  suggestion: without it there's no telling "easy" from "ground out".
+- **Marks records as they happen.** A working set that beats your all-time best
+  for that many reps, or your best estimated 1RM, says so on the spot — once
+  there are a few sessions to beat, so it doesn't cry wolf in week one.
 - **Catches typos.** Before a set is written, an outlier weight (over 5% *and*
   at least 10 lbs above your last working set) or an implausible rep count asks
   you to confirm the actual numbers. Warmups, drop sets and failed attempts are
@@ -103,6 +109,7 @@ silent data bug would cost a logged workout belongs in it.
 7. ✅ Bodyweight with per-scale correction, trend, and weigh-in nudge
 8. ✅ History: weekly sets by region, per-exercise strength trend, rep maxes, sessions
 9. ✅ Backup, restore and spreadsheet export
+10. ✅ Exercise editing, set correction, progression prompts, PRs, rest per exercise
 
 ## Notes
 

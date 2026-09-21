@@ -25,7 +25,7 @@ import * as supa from './supa.js';
    `dirty` is deliberately absent: it's local bookkeeping, not data. */
 const TABLES = [
   ['exercises', 'exercises',
-    ['id', 'name', 'name_key', 'muscle_group', 'tracks', 'is_custom']],
+    ['id', 'name', 'name_key', 'muscle_group', 'tracks', 'is_custom', 'rest_seconds']],
   ['places', 'places',
     ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at']],
   ['templates', 'templates',
@@ -36,7 +36,7 @@ const TABLES = [
     ['id', 'started_at', 'ended_at', 'place_id', 'template_id', 'plan', 'notes']],
   ['sets', 'sets',
     ['id', 'workout_id', 'exercise_id', 'set_index', 'weight', 'reps', 'seconds',
-     'rpe', 'failed', 'is_warmup', 'is_dropset']],
+     'rpe', 'failed', 'is_warmup', 'is_dropset', 'is_pr']],
   ['exercise_notes', 'exercise_notes',
     ['id', 'workout_id', 'exercise_id', 'body']],
   ['bodyweights', 'bodyweights',
@@ -58,7 +58,7 @@ function toRow(record, columns) {
     if (value === undefined) value = null;
     // Flags are 0/1 locally and smallint remotely; older rows predate some
     // of these fields entirely.
-    if (['is_custom', 'failed', 'is_warmup', 'is_dropset', 'deleted'].includes(column)) {
+    if (['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted'].includes(column)) {
       value = value ? 1 : 0;
     }
     row[column] = value;
@@ -72,7 +72,7 @@ function fromRow(row, columns) {
   for (const column of [...columns, ...COMMON]) {
     record[column] = row[column] ?? null;
   }
-  for (const flag of ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'deleted']) {
+  for (const flag of ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted']) {
     if (flag in record) record[flag] = record[flag] ? 1 : 0;
   }
   record.dirty = 0;

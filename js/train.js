@@ -4,7 +4,11 @@
 
 import * as store from './store.js';
 import * as rest from './rest.js';
-import { checkSet, suggestWeight, DEFAULT_TARGET_RPE } from './rules.js';
+import {
+  checkSet, suggestWeight, DEFAULT_TARGET_RPE, suggestProgression, detectPR,
+} from './rules.js';
+import * as exeditor from './exeditor.js';
+import { MUSCLE_GROUPS } from './seed.js';
 import * as geo from './geo.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
@@ -34,6 +38,7 @@ const state = {
   placeSuggestion: null,       // GPS disagrees with an explicit choice: offer, don't apply
   geoStatus: null,             // readout for the Locations sheet
   geoBusy: null,               // place id being captured, or 'detect'
+  exDraft: null,               // exercise being edited
   targets: new Map(),    // exercise id -> {sets, reps} from the routine
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
@@ -224,6 +229,7 @@ function renderActive() {
       <li class="set-row${set.is_dropset ? ' is-drop' : ''}">
         <span class="set-n">${set.is_dropset ? '↳' : set.set_index}</span>
         <span class="set-desc">${escapeHTML(describeSet(set, exercise))}</span>
+        ${set.is_pr ? '<span class="tag tag-pr">PR</span>' : ''}
         ${set.failed ? '<span class="tag tag-fail">fail</span>' : ''}
         ${set.is_warmup ? '<span class="tag">warmup</span>' : ''}
       </li>`).join('');
@@ -483,20 +489,29 @@ function renderPicker() {
     </div>`;
 }
 
-function renderRestBar() {
+function restFor(exercise) {
+  return exercise?.rest_seconds ?? state.rest.duration;
+}
+
+function renderRestBar(exercise) {
   const left = rest.remaining(state.rest.endsAt);
+  const offer = state.sheet?.restOffer && exercise && state.sheet.restOffer !== exercise.rest_seconds
+    ? `<button class="btn-link rest-remember" data-act="rest-remember" data-secs="${state.sheet.restOffer}">
+         Always rest ${rest.format(state.sheet.restOffer)} after ${escapeHTML(exercise.name)}?
+       </button>` : '';
 
   if (left === null) {
+    const mine = exercise?.rest_seconds ?? null;
     return `
       <div class="rest-bar">
         <span class="rest-label">Rest</span>
         <div class="rest-presets">
           ${rest.PRESETS.map((s) => `
-            <button class="chip" data-act="rest-start" data-secs="${s}">
+            <button class="chip ${mine === s ? 'is-on' : ''}" data-act="rest-start" data-secs="${s}">
               ${rest.format(s)}
             </button>`).join('')}
         </div>
-      </div>`;
+      </div>${offer}`;
   }
 
   return `
@@ -504,7 +519,7 @@ function renderRestBar() {
       <span class="rest-clock" id="restClock">${rest.format(left)}</span>
       <span class="rest-label">${left === 0 ? 'Rest is up' : 'resting'}</span>
       <button class="btn-link" data-act="rest-stop">${left === 0 ? 'Clear' : 'Skip'}</button>
-    </div>`;
+    </div>${offer}`;
 }
 
 function renderLogSheet() {
@@ -516,10 +531,13 @@ function renderLogSheet() {
   const isBodyweight = exercise.tracks === 'bodyweight_reps';
 
   const logged = state.sets.filter((s) => s.exercise_id === exercise.id);
+  const editing = state.sheet.editingSetId;
   const loggedRows = logged.map((set) => `
-    <li class="set-row${set.is_dropset ? ' is-drop' : ''}">
+    <li class="set-row${set.is_dropset ? ' is-drop' : ''}${editing === set.id ? ' is-editing' : ''}">
       <span class="set-n">${set.is_dropset ? '↳' : set.set_index}</span>
-      <span class="set-desc">${escapeHTML(describeSet(set, exercise))}</span>
+      <button class="set-desc set-edit" data-act="edit-set" data-set="${set.id}"
+              aria-label="Edit this set">${escapeHTML(describeSet(set, exercise))}${
+        set.is_pr ? ' <span class="tag tag-pr">PR</span>' : ''}</button>
       <button class="set-del" data-act="del-set" data-set="${set.id}" aria-label="Delete set">×</button>
     </li>`).join('');
 
@@ -527,21 +545,46 @@ function renderLogSheet() {
     ? `Last time: ${escapeHTML(describeSet(state.sheet.last, exercise))}`
     : 'First time logging this one.';
 
-  const { target, e1rm, suggested } = state.sheet;
+  const { target, e1rm, suggested, progression } = state.sheet;
   const targetText = target
     ? `Target ${[target.sets, target.reps].filter(Boolean).join(' × ')}`
     : '';
-  const targetLine = (targetText || suggested) ? `
+  // Progression is grounded in what you actually did last time, so it wins over
+  // the arithmetic of a 1RM estimate whenever both are available.
+  const chip = progression ? `
+      <button class="suggest-chip" data-act="use-suggested" data-weight="${progression.weight}">
+        Try ${formatWeight(progression.weight)} lbs
+      </button>
+      <span class="suggest-why">
+        Last time was easy: ${progression.sets} × ${progression.reps} at
+        ${formatWeight(progression.from)}, nothing above RPE ${progression.hardestRpe}
+      </span>` : suggested ? `
+      <button class="suggest-chip" data-act="use-suggested" data-weight="${suggested}">
+        Try ${formatWeight(suggested)} lbs
+      </button>
+      <span class="suggest-why">
+        from an estimated 1RM of ${Math.round(e1rm)}, leaving ~2 reps in reserve
+      </span>` : '';
+  const targetLine = (targetText || chip) && !editing ? `
     <div class="target-line">
       ${targetText ? `<span class="target-text">${escapeHTML(targetText)}</span>` : ''}
-      ${suggested ? `
-        <button class="suggest-chip" data-act="use-suggested" data-weight="${suggested}">
-          Try ${formatWeight(suggested)} lbs
-        </button>
-        <span class="suggest-why">
-          from an estimated 1RM of ${Math.round(e1rm)}, leaving ~2 reps in reserve
-        </span>` : ''}
+      ${chip}
     </div>` : '';
+
+  // One tap to file a new custom exercise under the right muscle, so weekly
+  // volume stays honest without making creation any slower.
+  const needsMuscle = exercise.is_custom && (!exercise.muscle_group || exercise.muscle_group === 'Other');
+  const musclePrompt = needsMuscle && !editing ? `
+    <div class="muscle-prompt">
+      <p>Which muscle does this work? <span class="optional">for weekly volume</span></p>
+      <div class="chips chips-wrap">
+        ${MUSCLE_GROUPS.filter((m) => m !== 'Other').map((m) => `
+          <button class="chip" data-act="quick-muscle" data-muscle="${escapeHTML(m)}">${escapeHTML(m)}</button>`).join('')}
+      </div>
+    </div>` : '';
+
+  const flash = state.sheet.flash ? `
+    <div class="pr-flash" role="status">🏆 ${escapeHTML(state.sheet.flash)}</div>` : '';
 
   const prior = state.sheet.priorNote;
   const priorNote = prior ? `
@@ -599,13 +642,21 @@ function renderLogSheet() {
     <div class="sheet">
       <header class="sheet-head">
         <h2>${escapeHTML(exercise.name)}</h2>
-        <button class="btn-link" data-act="close">Done</button>
+        <div class="sheet-head-actions">
+          <button class="btn-link" data-act="edit-exercise">Edit</button>
+          <button class="btn-link" data-act="close">Done</button>
+        </div>
       </header>
 
-      ${renderRestBar()}
-      ${priorNote}
-      ${targetLine}
-      <p class="last-line">${lastLine}</p>
+      ${flash}
+      ${editing ? `
+        <p class="edit-banner">Editing set ${logged.findIndex((s) => s.id === editing) + 1} —
+          change anything, then save.</p>` : `
+        ${renderRestBar(exercise)}
+        ${musclePrompt}
+        ${priorNote}
+        ${targetLine}
+        <p class="last-line">${lastLine}</p>`}
 
       ${weightField}
       ${repsField}
@@ -638,12 +689,17 @@ function renderLogSheet() {
             </button>
           </div>
         </div>` : `
+        ${editing ? `
+        <div class="log-actions">
+          <button class="btn btn-quiet btn-drop" data-act="cancel-edit">Cancel</button>
+          <button class="btn btn-log" data-act="log-set">Save changes</button>
+        </div>` : `
         <div class="log-actions">
           <button class="btn btn-log" data-act="log-set">Log set</button>
           <button class="btn btn-quiet btn-drop" data-act="drop-set" ${canDrop ? '' : 'disabled'}>
             + Drop
           </button>
-        </div>`}
+        </div>`}`}
 
       <div class="field notes-field">
         <label for="fNote">Notes for this exercise today</label>
@@ -666,6 +722,7 @@ export function render() {
   else if (state.sheet?.type === 'template') html = renderTemplateSheet();
   else if (state.sheet?.type === 'place') html = renderPlaceSheet();
   else if (state.sheet?.type === 'log') html = renderLogSheet();
+  else if (state.sheet?.type === 'exedit') html = exeditor.render(state.exDraft);
   else if (state.workout) html = renderActive();
   else html = renderIdle();
 
@@ -744,6 +801,15 @@ async function openLogSheet(exerciseId) {
   const targetReps = target?.reps ?? null;
   const suggested = suggestWeight(e1rm, targetReps);
 
+  // "Go up next time": judged on the most recent earlier session, at this gym
+  // where there is history here, since machines differ between gyms.
+  const lastSession = exercise?.tracks === 'weight_reps'
+    ? await store.lastSessionSets(exerciseId, {
+      placeId: state.workout.place_id, excludeWorkoutId: state.workout.id,
+    })
+    : null;
+  const progression = suggestProgression(lastSession?.sets, target, exercise);
+
   // Has anything been logged for this exercise in this session yet?
   const startedHere = state.sets.some((s) => s.exercise_id === exerciseId);
   const note = await store.getNote(state.workout.id, exerciseId);
@@ -760,6 +826,10 @@ async function openLogSheet(exerciseId) {
     target,
     e1rm,
     suggested,
+    progression,
+    editingSetId: null,
+    flash: null,
+    restOffer: null,
     pendingConfirm: null,
     priorNote,
     note: note?.body || '',
@@ -883,17 +953,43 @@ async function logCurrent({ isDrop, confirmed = false }) {
   }
   state.sheet.pendingConfirm = null;
 
-  await store.addSet({
-    workout_id: state.workout.id,
-    exercise_id: exerciseId,
+  const values = {
     weight: exercise.tracks === 'time' ? null : draft.weight,
     reps: exercise.tracks === 'time' ? null : draft.reps,
     seconds: exercise.tracks === 'time' ? draft.seconds : null,
-    rpe: draft.rpe,
-    failed: draft.failed,
-    is_warmup: draft.is_warmup,
+    rpe: draft.failed ? null : draft.rpe,
+    failed: draft.failed ? 1 : 0,
+    is_warmup: draft.is_warmup ? 1 : 0,
+  };
+
+  // Correcting a set already logged: keep its place in the order, re-judge
+  // whether it's a record, and don't start a rest.
+  if (state.sheet.editingSetId) {
+    const original = state.sets.find((s) => s.id === state.sheet.editingSetId);
+    if (original) {
+      const priors = await store.priorSetsFor(exerciseId, { placeId: state.workout.place_id });
+      const pr = detectPR({ ...original, ...values }, priors.filter((s) =>
+        s.created_at < original.created_at), exercise);
+      await store.updateSet(original, { ...values, is_pr: pr ? 1 : 0 });
+    }
+    return finishEditing();
+  }
+
+  // Records are judged before the set is written, against everything earlier.
+  let pr = null;
+  if (!isDrop) {
+    const priors = await store.priorSetsFor(exerciseId, { placeId: state.workout.place_id });
+    pr = detectPR({ id: '(new)', workout_id: state.workout.id, ...values }, priors, exercise);
+  }
+
+  await store.addSet({
+    workout_id: state.workout.id,
+    exercise_id: exerciseId,
+    ...values,
     is_dropset: isDrop,
+    is_pr: pr ? 1 : 0,
   });
+  state.sheet.flash = pr ? describePR(pr) : null;
 
   await saveNoteNow();
   state.sets = await store.setsForWorkout(state.workout.id);
@@ -907,9 +1003,45 @@ async function logCurrent({ isDrop, confirmed = false }) {
     const dropped = Math.max(0, Math.round(((draft.weight ?? 0) * 0.8) / 5) * 5);
     state.sheet.draft.weight = dropped;
   } else {
-    await startRest(state.rest.duration);
+    await startRest(restFor(exercise));
   }
 
+  render();
+}
+
+function describePR(pr) {
+  const parts = [];
+  if (pr.repPR) {
+    parts.push(`Best ever for ${pr.reps}+ reps: ${formatWeight(pr.weight)}, was ${formatWeight(pr.previousWeight)}`);
+  }
+  if (pr.e1rmPR) {
+    parts.push(`${pr.repPR ? 'e1RM' : 'New estimated 1RM'} ${pr.estimate}, was ${pr.previousEstimate}`);
+  }
+  return `PR · ${parts.join(' · ')}`;
+}
+
+/* Load a logged set into the form for correction. */
+function beginEditing(setId) {
+  const set = state.sets.find((s) => s.id === setId);
+  if (!set) return;
+  state.sheet.savedDraft = { ...state.sheet.draft };
+  state.sheet.editingSetId = set.id;
+  state.sheet.draft = {
+    weight: set.weight, reps: set.reps, seconds: set.seconds,
+    rpe: set.rpe, failed: set.failed ? 1 : 0, is_warmup: set.is_warmup ? 1 : 0,
+  };
+  state.sheet.pendingConfirm = null;
+  state.sheet.flash = null;
+}
+
+async function finishEditing() {
+  state.sheet.editingSetId = null;
+  state.sheet.pendingConfirm = null;
+  if (state.sheet.savedDraft) state.sheet.draft = state.sheet.savedDraft;
+  state.sheet.savedDraft = null;
+  state.sets = await store.setsForWorkout(state.workout.id);
+  state.sheet.last = await store.lastSetFor(state.sheet.exerciseId);
+  state.sheet.reference = await store.lastWorkSetFor(state.sheet.exerciseId);
   render();
 }
 
@@ -930,6 +1062,28 @@ async function onClick(event) {
   // so the panel can never end up confirming a number that's been edited.
   if (state.sheet?.type === 'log' && act !== 'confirm-log' && act !== 'cancel-log') {
     state.sheet.pendingConfirm = null;
+  }
+  // A PR flash lasts until you do something else; so does the rest offer.
+  if (state.sheet?.type === 'log' && !['log-set', 'confirm-log', 'drop-set'].includes(act)) {
+    state.sheet.flash = null;
+  }
+  if (state.sheet?.type === 'log' && act !== 'rest-start' && act !== 'rest-remember') {
+    state.sheet.restOffer = null;
+  }
+
+  // The exercise editor owns its own actions.
+  if (state.sheet?.type === 'exedit') {
+    const outcome = await exeditor.handle(act, trigger, state.exDraft, root);
+    if (outcome === 'changed') return render();
+    if (outcome) {
+      const returnTo = state.sheet.returnTo;
+      state.exDraft = null;
+      state.exercises = await store.listExercises();
+      if (outcome !== 'deleted' && returnTo && state.workout) return openLogSheet(returnTo);
+      state.sheet = null;
+      await refresh();
+      return render();
+    }
   }
 
   switch (act) {
@@ -1229,12 +1383,50 @@ async function onClick(event) {
     case 'drop-set':
       return logCurrent({ isDrop: true });
 
+    case 'edit-exercise': {
+      readSheetInputs();
+      await saveNoteNow();
+      const exercise = exerciseById(state.sheet.exerciseId);
+      if (!exercise) return;
+      state.exDraft = await exeditor.draftFor(exercise);
+      state.sheet = { type: 'exedit', returnTo: exercise.id };
+      return render();
+    }
+
+    case 'quick-muscle': {
+      const exercise = exerciseById(state.sheet.exerciseId);
+      if (!exercise) return;
+      readSheetInputs();
+      await store.updateExercise(exercise, { muscle_group: trigger.dataset.muscle });
+      state.exercises = await store.listExercises();
+      return render();
+    }
+
+    case 'edit-set':
+      readSheetInputs();
+      beginEditing(trigger.dataset.set);
+      return render();
+
+    case 'cancel-edit':
+      return finishEditing();
+
+    case 'rest-remember': {
+      const exercise = exerciseById(state.sheet.exerciseId);
+      if (!exercise) return;
+      await store.updateExercise(exercise, { rest_seconds: Number(trigger.dataset.secs) });
+      state.exercises = await store.listExercises();
+      state.sheet.restOffer = null;
+      return render();
+    }
+
     case 'use-suggested':
       state.sheet.draft.weight = Number(trigger.dataset.weight);
       return render();
 
     case 'rest-start':
       await startRest(Number(trigger.dataset.secs));
+      // Offer to make this the exercise's own rest time.
+      if (state.sheet?.type === 'log') state.sheet.restOffer = Number(trigger.dataset.secs);
       return render();
 
     case 'rest-stop':
@@ -1247,6 +1439,7 @@ async function onClick(event) {
       const set = state.sets.find((s) => s.id === trigger.dataset.set);
       if (!set) return;
       await store.deleteSet(set);
+      if (state.sheet?.editingSetId === set.id) return finishEditing();
       state.sets = await store.setsForWorkout(state.workout.id);
       return render();
     }

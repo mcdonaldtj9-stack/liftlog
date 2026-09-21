@@ -599,5 +599,49 @@ let noCoords = null;
 try { await store.setPlaceLocation(garage, { lat: null, lng: null }); } catch (e) { noCoords = e; }
 check('a location without coordinates is refused', noCoords instanceof Error);
 
+
+// ---------- editing exercises and sets ----------
+
+const renamable = await store.createExercise({ name: 'Cable Row Thing' });
+const renamed = await store.updateExercise(renamable, { name: 'Wide Grip Cable Row', muscle_group: 'Back' });
+check('an exercise can be renamed', renamed.name === 'Wide Grip Cable Row'
+  && (await store.findExercise('wide grip cable row'))?.id === renamable.id);
+check('and given a muscle group', renamed.muscle_group === 'Back');
+check('a case-only rename is allowed',
+  (await store.updateExercise(renamed, { name: 'wide grip cable row' })).name === 'wide grip cable row');
+
+let clash = null;
+try { await store.updateExercise(renamed, { name: 'Barbell Bench Press' }); } catch (e) { clash = e; }
+check('renaming onto an existing exercise is refused', /already have/.test(clash?.message || ''));
+check('and leaves it untouched', (await store.findExercise('wide grip cable row'))?.id === renamable.id);
+
+let blank = null;
+try { await store.updateExercise(renamed, { name: '   ' }); } catch (e) { blank = e; }
+check('a blank name is refused', blank instanceof Error);
+
+const restRemembered = await store.updateExercise(bench, { rest_seconds: 180 });
+check('an exercise remembers its rest time', restRemembered.rest_seconds === 180);
+
+const editSession = await store.startWorkout();
+const original = await store.addSet({ workout_id: editSession.id, exercise_id: bench.id, weight: 185, reps: 8, rpe: 8 });
+const corrected = await store.updateSet(original, { reps: 9, rpe: 8.5 });
+check('a logged set can be corrected', corrected.reps === 9 && corrected.rpe === 8.5);
+check('without losing its place in the order',
+  corrected.set_index === original.set_index && corrected.created_at === original.created_at);
+check('and the correction is queued for upload', corrected.dirty === 1
+  && corrected.updated_at >= original.updated_at);
+
+const marked = await store.addSet({ workout_id: editSession.id, exercise_id: bench.id, weight: 205, reps: 5, is_pr: 1 });
+check('a record set is marked', marked.is_pr === 1);
+
+check('an exercise with sets reports them', (await store.setCountFor(bench.id)) > 0);
+const gone = await store.createExercise({ name: 'Doomed Machine' });
+await store.addSet({ workout_id: editSession.id, exercise_id: gone.id, weight: 50, reps: 10 });
+await store.deleteExercise(gone);
+check('a deleted exercise leaves the list', !(await store.listExercises()).some((e) => e.id === gone.id));
+check('but its logged sets stay', (await store.setsForWorkout(editSession.id))
+  .some((s) => s.exercise_id === gone.id));
+await store.discardWorkout(await store.getActiveWorkout());
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

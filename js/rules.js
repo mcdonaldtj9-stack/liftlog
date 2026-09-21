@@ -166,3 +166,100 @@ export function modeOf(values) {
   }
   return tied ? null : best;
 }
+
+/* ---------- progression: "go up next time" ----------
+
+   The rule is deliberately strict, because a bad "add weight" suggestion is
+   worse than none. Last session must have hit EVERY target set at or above the
+   target reps, with nothing failed, and every one of those sets must have an
+   RPE of 8 or lower. RPE is the safety signal: without it there's no way to
+   tell "hit 3 x 8 comfortably" from "hit 3 x 8 by grinding", so no RPE means
+   no suggestion. */
+
+export const PROGRESSION_MAX_RPE = 8;
+
+/* +5 on most things; +2.5 on light work, where 5 lbs is a big relative jump. */
+export function progressionStep(weight) {
+  return weight < 60 ? 2.5 : 5;
+}
+
+/* `target` is { sets, reps } from a routine, or null — in which case last
+   session's own shape is the target: at least two working sets, all at the
+   same rep count. */
+export function suggestProgression(lastSessionSets, target, exercise) {
+  if (exercise?.tracks !== 'weight_reps') return null;
+
+  const working = (lastSessionSets || []).filter((s) =>
+    !s.deleted && !s.is_warmup && !s.is_dropset);
+  if (!working.length || working.some((s) => s.failed)) return null;
+
+  let wantSets = target?.sets ?? null;
+  let wantReps = target?.reps ?? null;
+  if (!wantReps) {
+    const reps = new Set(working.map((s) => s.reps));
+    if (working.length < 2 || reps.size !== 1) return null;
+    wantReps = working[0].reps;
+    wantSets = working.length;
+  }
+  if (!wantSets) wantSets = working.length;
+
+  if (working.length < wantSets) return null;
+  if (working.some((s) => !(s.reps >= wantReps))) return null;
+  if (working.some((s) => s.rpe == null || s.rpe > PROGRESSION_MAX_RPE)) return null;
+
+  // Progress from the weight actually used; if it varied, from the lightest,
+  // so the suggestion never outruns the weakest set.
+  const weights = working.map((s) => s.weight).filter((w) => w > 0);
+  if (!weights.length) return null;
+  const base = Math.min(...weights);
+
+  return {
+    weight: roundWeight(base + progressionStep(base)),
+    from: base,
+    sets: wantSets,
+    reps: wantReps,
+    hardestRpe: Math.max(...working.map((s) => s.rpe)),
+  };
+}
+
+/* ---------- personal records ----------
+
+   Compared against ALL prior history, not the 60-day window used for weight
+   suggestions: a PR is all-time. Only a working set can be one, and only once
+   there are a few sessions to beat — otherwise the second session ever is
+   nothing but PRs and the word stops meaning anything. */
+
+export const PR_MIN_PRIOR_SESSIONS = 3;
+
+export function detectPR(set, priorSets, exercise) {
+  if (exercise?.tracks !== 'weight_reps') return null;
+  if (!set || set.is_warmup || set.is_dropset || set.failed) return null;
+  if (!(set.weight > 0) || !(set.reps > 0)) return null;
+
+  const prior = (priorSets || []).filter((s) =>
+    !s.deleted && !s.is_warmup && !s.is_dropset && !s.failed && s.id !== set.id);
+  const sessions = new Set(prior.map((s) => s.workout_id)).size;
+  if (sessions < PR_MIN_PRIOR_SESSIONS) return null;
+
+  // Rep record: heavier than anything ever done for this many reps or more.
+  // Beating your 8-rep best with a 10-rep set counts; beating it with a 3 doesn't.
+  const atLeastAsMany = prior.filter((s) => s.reps >= set.reps && s.weight > 0);
+  const repBest = atLeastAsMany.length ? Math.max(...atLeastAsMany.map((s) => s.weight)) : null;
+  const repPR = repBest !== null && set.weight > repBest;
+
+  const estimate = estimate1RM(set);
+  const priorEstimates = prior.map(estimate1RM).filter((v) => v !== null);
+  const bestEstimate = priorEstimates.length ? Math.max(...priorEstimates) : null;
+  const e1rmPR = estimate !== null && bestEstimate !== null && estimate > bestEstimate + 0.5;
+
+  if (!repPR && !e1rmPR) return null;
+  return {
+    repPR,
+    e1rmPR,
+    reps: set.reps,
+    weight: set.weight,
+    previousWeight: repBest,
+    estimate: estimate !== null ? Math.round(estimate) : null,
+    previousEstimate: bestEstimate !== null ? Math.round(bestEstimate) : null,
+  };
+}

@@ -305,6 +305,37 @@ export async function allTemplates() {
   return (await db.getAll('templates')).filter(db.isLive);
 }
 
+/* ---------- progression and records ----------
+   Machines differ between gyms, so where this exercise has history at the
+   current place, only that place counts. Where it doesn't, everything does. */
+
+async function workingHistory(exerciseId, { placeId = null, excludeWorkoutId = null } = {}) {
+  const sets = (await db.getAllByIndex('sets', 'by_exercise', exerciseId)).filter(db.isLive);
+  const workouts = new Map((await db.getAll('workouts')).filter(db.isLive).map((w) => [w.id, w]));
+  const usable = sets.filter((s) => workouts.has(s.workout_id) && s.workout_id !== excludeWorkoutId);
+  const here = placeId ? usable.filter((s) => workouts.get(s.workout_id).place_id === placeId) : [];
+  return { sets: here.length ? here : usable, workouts, samePlace: here.length > 0 };
+}
+
+/* Every set from the most recent earlier session of this exercise. */
+export async function lastSessionSets(exerciseId, options = {}) {
+  const { sets, workouts } = await workingHistory(exerciseId, options);
+  if (!sets.length) return null;
+  const latest = sets.reduce((a, b) =>
+    (workouts.get(a.workout_id).started_at > workouts.get(b.workout_id).started_at ? a : b));
+  const workout = workouts.get(latest.workout_id);
+  return {
+    workout,
+    sets: sets.filter((s) => s.workout_id === workout.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+  };
+}
+
+/* Everything logged before now, as the bar a new set has to clear. */
+export async function priorSetsFor(exerciseId, options = {}) {
+  return (await workingHistory(exerciseId, options)).sets;
+}
+
 /* ---------- strength estimates ---------- */
 
 /* Best recent estimated 1RM for an exercise, or null when nothing in the
@@ -377,13 +408,37 @@ export async function createExercise({ name, muscle_group = 'Other', tracks = 'w
   return record;
 }
 
+/* Is this name already used by a different exercise? Renaming "Bench" to
+   "bench" is fine; renaming it to an existing "Incline Bench" is not. */
+export async function exerciseNameTaken(name, exceptId = null) {
+  const clash = await findExercise(name);
+  return Boolean(clash && clash.id !== exceptId);
+}
+
 export async function updateExercise(exercise, changes) {
   const next = db.touch(exercise, changes);
-  if (changes.name) next.name_key = nameKey(changes.name);
+  if (changes.name !== undefined) {
+    const trimmed = String(changes.name).trim();
+    if (!trimmed) throw new Error('Exercise needs a name');
+    if (await exerciseNameTaken(trimmed, exercise.id)) {
+      throw new Error(`You already have an exercise called "${trimmed}".`);
+    }
+    next.name = trimmed;
+    next.name_key = nameKey(trimmed);
+  }
   await db.put('exercises', next);
   return next;
 }
 
+/* How many live sets an exercise has, for deciding what's safe to change:
+   switching an exercise from weight to time would make its history nonsense. */
+export async function setCountFor(exerciseId) {
+  const rows = await db.getAllByIndex('sets', 'by_exercise', exerciseId);
+  return rows.filter(db.isLive).length;
+}
+
+/* The exercise goes from lists and pickers; every set logged against it stays,
+   and past sessions still show them. */
 export async function deleteExercise(exercise) {
   const next = db.touch(exercise, { deleted: 1 });
   await db.put('exercises', next);
@@ -476,7 +531,7 @@ export async function setsForWorkout(workoutId) {
 
 export async function addSet({
   workout_id, exercise_id, weight, reps, seconds,
-  rpe, failed, is_warmup, is_dropset,
+  rpe, failed, is_warmup, is_dropset, is_pr,
 }) {
   const siblings = await db.getAllByIndex('sets', 'by_workout', workout_id);
   const forExercise = siblings.filter((s) => db.isLive(s) && s.exercise_id === exercise_id);
@@ -503,6 +558,7 @@ export async function addSet({
     failed: failed ? 1 : 0,
     is_warmup: is_warmup ? 1 : 0,
     is_dropset: is_dropset ? 1 : 0,
+    is_pr: is_pr ? 1 : 0,
   });
   await db.put('sets', record);
   return record;

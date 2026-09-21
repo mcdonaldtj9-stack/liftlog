@@ -46,6 +46,7 @@ create table if not exists public.exercises (
   muscle_group      text,
   tracks            text,
   is_custom         smallint not null default 0,
+  rest_seconds      integer,             -- remembered rest after this exercise
   created_at        text not null,
   updated_at        text not null,
   deleted           smallint not null default 0,
@@ -121,6 +122,7 @@ create table if not exists public.sets (
   failed            smallint not null default 0,
   is_warmup         smallint not null default 0,
   is_dropset        smallint not null default 0,
+  is_pr             smallint not null default 0,  -- a record when it was logged
   created_at        text not null,
   updated_at        text not null,
   deleted           smallint not null default 0,

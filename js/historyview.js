@@ -7,6 +7,7 @@
      session   one workout in full — reached from Recent sessions on Train */
 
 import * as store from './store.js';
+import * as exeditor from './exeditor.js';
 import {
   REGIONS, OTHER_REGION, filterByPlace, weeklySets, e1rmPerSession, bestByReps,
   meaningfulRepMaxes, e1rmChange, sessionsForExercise, exerciseSummaries,
@@ -46,6 +47,8 @@ const state = {
   range: '84',
   inspectWeek: null,
   inspectSession: null,
+  exDraft: null,         // exercise being edited
+  setEdit: null,         // { id, draft, confirmDelete } for a past set
 };
 
 const top = () => state.stack[state.stack.length - 1];
@@ -91,11 +94,74 @@ function compactSet(set, exercise) {
   return body;
 }
 
-function setChips(sets, exercise) {
+function setChips(sets, exercise, { editable = false } = {}) {
   return sets.map((set) => {
     const cls = set.failed ? 'is-fail' : set.is_warmup ? 'is-warm' : set.is_dropset ? 'is-drop' : '';
-    return `<span class="hs-set ${cls}">${escapeHTML(compactSet(set, exercise))}</span>`;
+    const label = `${escapeHTML(compactSet(set, exercise))}${set.is_pr ? ' <b class="hs-pr">PR</b>' : ''}`;
+    const on = state.setEdit?.id === set.id ? ' is-on' : '';
+    return editable
+      ? `<button class="hs-set hs-set-btn ${cls}${on}" data-act="hs-edit-set" data-id="${set.id}"
+                 aria-label="Edit this set">${label}</button>`
+      : `<span class="hs-set ${cls}">${label}</span>`;
   }).join('');
+}
+
+/* A compact editor for a set from a finished session. */
+function renderSetEditor(set, exercise) {
+  const d = state.setEdit.draft;
+  const isTime = exercise?.tracks === 'time';
+  const rpeOptions = ['', 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((v) =>
+    `<option value="${v}" ${String(d.rpe ?? '') === String(v) ? 'selected' : ''}>${v === '' ? '—' : v}</option>`).join('');
+
+  return `
+    <div class="hs-edit">
+      <div class="hs-edit-row">
+        ${isTime ? '' : `
+          <label>Weight<input class="num hs-num" id="heWeight" type="text" inputmode="decimal"
+                 value="${d.weight ?? ''}"></label>`}
+        <label>${isTime ? 'Seconds' : 'Reps'}<input class="num hs-num" id="heReps" type="text"
+               inputmode="numeric" value="${(isTime ? d.seconds : d.reps) ?? ''}"></label>
+        <label>RPE<select class="hs-select" id="heRpe" ${d.failed ? 'disabled' : ''}>${rpeOptions}</select></label>
+      </div>
+      <div class="hs-edit-row">
+        <label class="warmup"><input type="checkbox" id="heFailed" ${d.failed ? 'checked' : ''}><span>Failed</span></label>
+        <label class="warmup"><input type="checkbox" id="heWarmup" ${d.is_warmup ? 'checked' : ''}><span>Warmup</span></label>
+      </div>
+      ${state.setEdit.confirmDelete ? `
+        <div class="confirm-actions">
+          <button class="btn btn-quiet" data-act="hs-set-keep">Keep it</button>
+          <button class="btn btn-danger" data-act="hs-set-delete-confirm">Delete set</button>
+        </div>` : `
+        <div class="confirm-actions">
+          <button class="btn btn-quiet" data-act="hs-set-cancel">Cancel</button>
+          <button class="btn" data-act="hs-set-save">Save</button>
+        </div>
+        <button class="btn-link danger" data-act="hs-set-delete">Delete this set</button>`}
+    </div>`;
+}
+
+function readSetEditor() {
+  if (!state.setEdit) return;
+  const num = (id) => {
+    const el = root.querySelector(id);
+    if (!el) return undefined;
+    const raw = el.value.trim();
+    const v = raw === '' ? null : Number(raw);
+    return Number.isFinite(v) ? v : null;
+  };
+  const d = state.setEdit.draft;
+  const weight = num('#heWeight');
+  if (weight !== undefined) d.weight = weight;
+  const reps = num('#heReps');
+  if (reps !== undefined) {
+    if (d.tracksTime) d.seconds = reps; else d.reps = reps;
+  }
+  const rpe = root.querySelector('#heRpe');
+  if (rpe) d.rpe = rpe.value === '' ? null : Number(rpe.value);
+  const failed = root.querySelector('#heFailed');
+  if (failed) d.failed = failed.checked ? 1 : 0;
+  const warm = root.querySelector('#heWarmup');
+  if (warm) d.is_warmup = warm.checked ? 1 : 0;
 }
 
 function placeName(id) {
@@ -370,7 +436,7 @@ function renderExercise(exerciseId) {
     </li>`).join('');
 
   return `
-    ${renderBack(exercise.name)}
+    ${renderBack(exercise.name, { editId: exercise.id })}
     ${filter}
     ${latestCard}
     ${strength}
@@ -412,7 +478,9 @@ function renderSession(workoutId) {
           <span>${escapeHTML(exercise?.name || 'Removed exercise')}</span>
           <span class="hs-when">history ›</span>
         </button>
-        <div class="hs-sets">${setChips(sets.filter((s) => s.exercise_id === exerciseId), exercise)}</div>
+        <div class="hs-sets">${setChips(sets.filter((s) => s.exercise_id === exerciseId), exercise, { editable: true })}</div>
+        ${state.setEdit && sets.some((s) => s.id === state.setEdit.id && s.exercise_id === exerciseId)
+          ? renderSetEditor(sets.find((s) => s.id === state.setEdit.id), exercise) : ''}
         ${note ? `<p class="hs-note">“${escapeHTML(note.body)}”</p>` : ''}
       </li>`;
   }).join('');
@@ -425,14 +493,18 @@ function renderSession(workoutId) {
         working ${working === 1 ? 'set' : 'sets'} · <strong>${order.length}</strong>
         ${order.length === 1 ? 'exercise' : 'exercises'}</p>
     </section>
-    ${blocks ? `<ul class="hs-sessions">${blocks}</ul>` : '<p class="hint">No sets were logged.</p>'}`;
+    ${blocks ? `<p class="hs-sub">Tap a set to correct it.</p><ul class="hs-sessions">${blocks}</ul>`
+      : '<p class="hint">No sets were logged.</p>'}`;
 }
 
-function renderBack(title) {
+function renderBack(title, { editId = null } = {}) {
   return `
     <header class="sheet-head">
       <h2>${escapeHTML(title)}</h2>
-      <button class="btn-link" data-act="hs-back">Back</button>
+      <div class="sheet-head-actions">
+        ${editId ? `<button class="btn-link" data-act="hs-edit-exercise" data-id="${editId}">Edit</button>` : ''}
+        <button class="btn-link" data-act="hs-back">Back</button>
+      </div>
     </header>`;
 }
 
@@ -442,7 +514,8 @@ export function render() {
   if (!root || !state.data) return;
   const view = top();
   let html;
-  if (view.view === 'exercise') html = renderExercise(view.id);
+  if (state.exDraft) html = exeditor.render(state.exDraft);
+  else if (view.view === 'exercise') html = renderExercise(view.id);
   else if (view.view === 'session') html = renderSession(view.id);
   else html = `${renderWeeklyChart()}${renderExerciseList()}`;
   root.innerHTML = html;
@@ -457,6 +530,7 @@ export function render() {
 function push(entry) {
   state.stack.push(entry);
   state.inspectSession = null;
+  state.setEdit = null;
   window.scrollTo(0, 0);
 }
 
@@ -477,7 +551,88 @@ async function onClick(event) {
   const trigger = event.target.closest('[data-act]');
   if (!trigger) return;
 
+  if (state.exDraft) {
+    const outcome = await exeditor.handle(trigger.dataset.act, trigger, state.exDraft, root);
+    if (outcome === 'changed') return render();
+    if (outcome) {
+      state.exDraft = null;
+      if (outcome === 'deleted' && state.stack.length > 1) state.stack.pop();
+      await load();
+      return render();
+    }
+  }
+
   switch (trigger.dataset.act) {
+    case 'hs-edit-exercise': {
+      const exercise = state.data.exercisesById.get(trigger.dataset.id);
+      if (!exercise) return;
+      state.exDraft = await exeditor.draftFor(exercise);
+      window.scrollTo(0, 0);
+      return render();
+    }
+
+    case 'hs-edit-set': {
+      const set = state.data.sets.find((s) => s.id === trigger.dataset.id);
+      if (!set) return;
+      if (state.setEdit?.id === set.id) {
+        state.setEdit = null;
+        return render();
+      }
+      const exercise = state.data.exercisesById.get(set.exercise_id);
+      state.setEdit = {
+        id: set.id,
+        confirmDelete: false,
+        draft: {
+          weight: set.weight, reps: set.reps, seconds: set.seconds, rpe: set.rpe,
+          failed: set.failed ? 1 : 0, is_warmup: set.is_warmup ? 1 : 0,
+          tracksTime: exercise?.tracks === 'time',
+        },
+      };
+      return render();
+    }
+
+    case 'hs-set-cancel':
+      state.setEdit = null;
+      return render();
+
+    case 'hs-set-save': {
+      readSetEditor();
+      const set = state.data.sets.find((s) => s.id === state.setEdit?.id);
+      if (!set) return;
+      const d = state.setEdit.draft;
+      const changes = {
+        weight: d.tracksTime ? null : d.weight,
+        reps: d.tracksTime ? null : d.reps,
+        seconds: d.tracksTime ? d.seconds : null,
+        rpe: d.failed ? null : d.rpe,
+        failed: d.failed,
+        is_warmup: d.is_warmup,
+      };
+      // A set that's now a warmup or a miss can't still be a record.
+      if (d.failed || d.is_warmup) changes.is_pr = 0;
+      await store.updateSet(set, changes);
+      state.setEdit = null;
+      await load();
+      return render();
+    }
+
+    case 'hs-set-delete':
+      readSetEditor();
+      state.setEdit.confirmDelete = true;
+      return render();
+
+    case 'hs-set-keep':
+      state.setEdit.confirmDelete = false;
+      return render();
+
+    case 'hs-set-delete-confirm': {
+      const set = state.data.sets.find((s) => s.id === state.setEdit?.id);
+      if (set) await store.deleteSet(set);
+      state.setEdit = null;
+      await load();
+      return render();
+    }
+
     case 'hs-exercise':
       state.placeFilter = null;
       push({ view: 'exercise', id: trigger.dataset.id });
@@ -486,6 +641,7 @@ async function onClick(event) {
       push({ view: 'session', id: trigger.dataset.id });
       return render();
     case 'hs-back':
+      state.setEdit = null;
       if (state.stack.length > 1) state.stack.pop();
       state.inspectSession = null;
       return render();
