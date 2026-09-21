@@ -4,6 +4,7 @@
 
 import * as db from './db.js';
 import { SEED_EXERCISES, SEED_PLACES } from './seed.js';
+import { bestE1RM, modeOf } from './rules.js';
 
 /* Collapse a name to a comparison key so "Incline  Bench" and "incline bench"
    are recognised as the same exercise. */
@@ -111,20 +112,43 @@ export async function templateExercises(templateId) {
     .filter((entry) => entry.exercise);
 }
 
-export async function setTemplateExercises(templateId, exerciseIds) {
-  const wanted = [...new Set(exerciseIds)];
+/* Accepts either bare exercise ids or {exercise_id, target_sets, target_reps}
+   objects, so callers that don't care about targets stay simple. */
+export async function setTemplateExercises(templateId, entries) {
+  const seen = new Set();
+  const wanted = [];
+  for (const entry of entries) {
+    const item = typeof entry === 'string' ? { exercise_id: entry } : entry;
+    if (!item?.exercise_id || seen.has(item.exercise_id)) continue;
+    seen.add(item.exercise_id);
+    wanted.push({
+      exercise_id: item.exercise_id,
+      target_sets: item.target_sets ?? null,
+      target_reps: item.target_reps ?? null,
+    });
+  }
+
   const existing = (await db.getAllByIndex('template_exercises', 'by_template', templateId))
     .filter(db.isLive);
   const byExercise = new Map(existing.map((row) => [row.exercise_id, row]));
 
   const writes = [];
-  wanted.forEach((exerciseId, position) => {
-    const row = byExercise.get(exerciseId);
+  wanted.forEach((item, position) => {
+    const row = byExercise.get(item.exercise_id);
+    const fields = {
+      position,
+      target_sets: item.target_sets,
+      target_reps: item.target_reps,
+    };
     if (row) {
-      writes.push(db.touch(row, { position }));
-      byExercise.delete(exerciseId);
+      writes.push(db.touch(row, fields));
+      byExercise.delete(item.exercise_id);
     } else {
-      writes.push(db.newRecord({ template_id: templateId, exercise_id: exerciseId, position }));
+      writes.push(db.newRecord({
+        template_id: templateId,
+        exercise_id: item.exercise_id,
+        ...fields,
+      }));
     }
   });
   // Whatever is left was removed from the template.
@@ -134,7 +158,7 @@ export async function setTemplateExercises(templateId, exerciseIds) {
   return wanted;
 }
 
-export async function createTemplate({ name, place_id = null, exerciseIds = [] }) {
+export async function createTemplate({ name, place_id = null, exerciseIds = [], exercises = null }) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Template needs a name');
 
@@ -145,7 +169,7 @@ export async function createTemplate({ name, place_id = null, exerciseIds = [] }
     position: siblings.length,
   });
   await db.put('templates', record);
-  await setTemplateExercises(record.id, exerciseIds);
+  await setTemplateExercises(record.id, exercises || exerciseIds);
   return record;
 }
 
@@ -175,11 +199,41 @@ export async function createTemplateFromWorkout(workout, name) {
   const planned = (workout.plan || []).filter((id) => fromSets.includes(id));
   const extra = fromSets.filter((id) => !planned.includes(id));
 
-  return createTemplate({
-    name,
-    place_id: workout.place_id || null,
-    exerciseIds: [...planned, ...extra],
+  // Targets come from what you actually did: how many working sets, and the
+  // rep count you hit most often. A session of 8, 8, 7 becomes a 3 x 8 target.
+  const exercises = [...planned, ...extra].map((exercise_id) => {
+    const working = sets.filter((s) =>
+      s.exercise_id === exercise_id && !s.is_warmup && !s.is_dropset);
+    return {
+      exercise_id,
+      target_sets: working.length || null,
+      target_reps: modeOf(working.map((s) => s.reps).filter((r) => r > 0)),
+    };
   });
+
+  return createTemplate({ name, place_id: workout.place_id || null, exercises });
+}
+
+/* ---------- strength estimates ---------- */
+
+/* Best recent estimated 1RM for an exercise, or null when nothing in the
+   window qualifies. */
+export async function bestE1RMFor(exerciseId) {
+  const rows = await db.getAllByIndex('sets', 'by_exercise', exerciseId);
+  return bestE1RM(rows.filter(db.isLive));
+}
+
+/* Targets for every exercise in this session's routine, keyed by exercise. */
+export async function targetsForWorkout(workout) {
+  const targets = new Map();
+  if (!workout?.template_id) return targets;
+
+  for (const { row, exercise } of await templateExercises(workout.template_id)) {
+    if (row.target_sets || row.target_reps) {
+      targets.set(exercise.id, { sets: row.target_sets, reps: row.target_reps });
+    }
+  }
+  return targets;
 }
 
 /* ---------- the session's exercise list ---------- */

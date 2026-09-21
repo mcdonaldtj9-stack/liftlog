@@ -15,7 +15,12 @@ assume you always train in the same place. This one doesn't.
 - **Routines.** Group exercises into the days you actually run — Push, Pull,
   Legs. A routine can belong to a gym, so the Planet Fitness version and the
   garage version live side by side under the same name. Finish a session and
-  save it as a routine rather than building one by hand.
+  save it as a routine rather than building one by hand — targets are inferred
+  from what you actually did.
+- **Weight suggestions.** Give an exercise a target rep count and it suggests a
+  load from your recent estimated 1RM (RPE-aware Epley, 60-day window, ~2 reps
+  in reserve). Always offered as a tap, never prefilled — the weight box still
+  shows what you actually lifted last time.
 - **RPE on every set.** 6–10 in half steps, optional so warmups skip it.
 - **Gym-aware.** Notes you write against an exercise come back the next time you
   do it at that same gym. Location is picked by hand today; GPS auto-detect is
@@ -57,7 +62,8 @@ silent data bug would cost a logged workout belongs in it.
 2. ✅ Exercises + set logging with RPE (local only)
 3. ✅ Rest timer, drop sets, failed sets, per-exercise notes, manual locations
    plus a confirmation step on outlier weights and rep counts
-4. ✅ Routines (templates), optionally per location
+4. ✅ Routines with per-exercise targets, optionally per location,
+   plus 1RM-based weight suggestions
 5. GPS auto-detect for locations
 6. Supabase schema, auth, sync queue
 7. Bodyweight + weigh-in nudge

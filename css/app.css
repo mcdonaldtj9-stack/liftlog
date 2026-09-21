@@ -662,6 +662,66 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .session-bar { align-items: center; }
 
+/* ---------- targets and suggestions ---------- */
+
+.target-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.target-text { font-size: 16px; font-weight: 650; }
+.suggest-chip {
+  padding: 8px 14px;
+  min-height: 40px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.suggest-chip:active { background: var(--accent); color: var(--accent-in); }
+.suggest-why { flex: 1 0 100%; color: var(--muted); font-size: 13px; }
+
+.ex-target {
+  margin: 4px 0 10px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.routine-ex-top { display: flex; align-items: center; gap: 6px; }
+.routine-ex-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+}
+.routine-ex-x { color: var(--muted); }
+.routine-ex-hint { color: var(--muted); font-size: 12px; }
+.mini {
+  width: 58px;
+  min-height: 42px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.mini:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
 /* ---------- weight sanity check ---------- */
 
 .btn-danger { background: var(--danger); color: #fff; }

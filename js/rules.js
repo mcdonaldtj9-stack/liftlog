@@ -82,3 +82,87 @@ export function checkSet(draft, reference, exercise) {
     shouldConfirmReps(draft, reference, exercise),
   ].filter(Boolean);
 }
+
+/* ---------- estimated 1RM ----------
+
+   Epley, adjusted for RPE. A set taken to RPE 8 had about 2 reps left in the
+   tank, so it represents more strength than the rep count alone suggests:
+   185 x 8 @ 8 is really a 10-rep effort. When no RPE was recorded we assume
+   0 reps in reserve, which UNDER-estimates rather than over-estimates — the
+   safe direction for anything that ends up as a weight suggestion.
+
+   Above 12 effective reps the formula stops being trustworthy, so it declines
+   to answer rather than returning a confident wrong number. */
+
+export const MAX_EFFECTIVE_REPS = 12;
+export const RECENT_WINDOW_DAYS = 60;
+export const DEFAULT_TARGET_RPE = 8;
+
+export function effectiveReps(set) {
+  if (!(set?.reps > 0)) return null;
+  const inReserve = set.rpe != null ? Math.max(0, 10 - set.rpe) : 0;
+  return set.reps + inReserve;
+}
+
+export function estimate1RM(set) {
+  if (!set || set.failed || set.is_warmup) return null;
+  if (!(set.weight > 0)) return null;
+
+  const reps = effectiveReps(set);
+  if (reps === null || reps > MAX_EFFECTIVE_REPS) return null;
+
+  return set.weight * (1 + reps / 30);
+}
+
+/* Best estimate from recent work only. A peak from before a long layoff
+   should not be recommending today's working weight, so anything outside the
+   window is ignored entirely rather than used as a fallback. */
+export function bestE1RM(sets, now = Date.now()) {
+  const cutoff = now - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  let best = null;
+
+  for (const set of sets) {
+    if (new Date(set.created_at).getTime() < cutoff) continue;
+    const estimate = estimate1RM(set);
+    if (estimate !== null && (best === null || estimate > best)) best = estimate;
+  }
+  return best;
+}
+
+/* 5 lb jumps on real weight, 2.5 on the light stuff where 5 is a big step. */
+export function roundWeight(value) {
+  if (!(value > 0)) return null;
+  const step = value >= 100 ? 5 : 2.5;
+  return Math.max(step, Math.round(value / step) * step);
+}
+
+/* What to load for `targetReps` reps, leaving 2 in reserve by default — a
+   weight you can hit for the prescribed reps across several sets, not one that
+   buries you on set one. */
+export function suggestWeight(e1rm, targetReps, targetRPE = DEFAULT_TARGET_RPE) {
+  if (!(e1rm > 0) || !(targetReps > 0)) return null;
+  const reps = targetReps + Math.max(0, 10 - targetRPE);
+  return roundWeight(e1rm / (1 + reps / 30));
+}
+
+/* The most common value, or null when there isn't a clear winner. Used to
+   infer "3 x 8" from a session that actually ran 8, 8, 7. */
+export function modeOf(values) {
+  const counts = new Map();
+  for (const value of values) counts.set(value, (counts.get(value) || 0) + 1);
+
+  let best = null;
+  let bestCount = 0;
+  let tied = false;
+
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+      tied = false;
+    } else if (count === bestCount) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
+}

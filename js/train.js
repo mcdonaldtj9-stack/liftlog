@@ -4,7 +4,7 @@
 
 import * as store from './store.js';
 import * as rest from './rest.js';
-import { checkSet } from './rules.js';
+import { checkSet, suggestWeight, DEFAULT_TARGET_RPE } from './rules.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
@@ -26,6 +26,7 @@ const state = {
   template: null,        // the routine this session was started from
   templateDraft: null,   // survives the picker opening on top of the editor
   lastPlaceId: null,
+  targets: new Map(),    // exercise id -> {sets, reps} from the routine
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
 };
@@ -109,6 +110,7 @@ async function refresh() {
   state.rest = await rest.load();
   state.templates = await store.listTemplates();
   state.lastPlaceId = await store.lastPlaceId();
+  state.targets = await store.targetsForWorkout(state.workout);
   state.template = state.workout?.template_id
     ? state.templates.find((t) => t.id === state.workout.template_id) || null
     : null;
@@ -208,13 +210,26 @@ function renderActive() {
         <header class="ex-head">
           <h3>${escapeHTML(exercise?.name || 'Unknown exercise')}</h3>
           ${sets.length
-            ? `<span class="ex-count">${sets.length} ${sets.length === 1 ? 'set' : 'sets'}</span>`
+            ? `<span class="ex-count">${(() => {
+                const target = state.targets.get(exerciseId);
+                const working = sets.filter((s) => !s.is_warmup && !s.is_dropset).length;
+                if (target?.sets) {
+                  return `${working} of ${target.sets} sets${
+                    working >= target.sets ? ' ✓' : ''}`;
+                }
+                return `${sets.length} ${sets.length === 1 ? 'set' : 'sets'}`;
+              })()}</span>`
             // Only offer removal while nothing is logged: dropping a block that
             // holds sets is a destructive act, and belongs elsewhere.
             : `<button class="ex-remove" data-act="unplan" data-ex="${exerciseId}"
                        aria-label="Remove from this session">×</button>`}
         </header>
         <ul class="set-list">${rows}</ul>
+        ${!sets.length && state.targets.get(exerciseId) ? `
+          <p class="ex-target">Target ${[
+            state.targets.get(exerciseId).sets,
+            state.targets.get(exerciseId).reps,
+          ].filter(Boolean).join(' × ')}</p>` : ''}
         <button class="btn btn-quiet btn-block" data-act="log" data-ex="${exerciseId}">
           ${sets.length ? 'Add set' : 'Start this exercise'}
         </button>
@@ -283,17 +298,27 @@ function renderPlaceSheet() {
 
 function renderTemplateSheet() {
   const draft = state.templateDraft;
-  const rows = draft.exerciseIds.map((id, i) => {
-    const exercise = exerciseById(id);
+  const rows = draft.entries.map((entry, i) => {
+    const exercise = exerciseById(entry.exercise_id);
     return `
       <li class="routine-ex">
-        <span class="routine-ex-name">${escapeHTML(exercise?.name || 'Removed exercise')}</span>
-        <button class="routine-ex-btn" data-act="tpl-up" data-i="${i}"
-                ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
-        <button class="routine-ex-btn" data-act="tpl-down" data-i="${i}"
-                ${i === draft.exerciseIds.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
-        <button class="routine-ex-btn danger" data-act="tpl-remove" data-i="${i}"
-                aria-label="Remove">×</button>
+        <div class="routine-ex-top">
+          <span class="routine-ex-name">${escapeHTML(exercise?.name || 'Removed exercise')}</span>
+          <button class="routine-ex-btn" data-act="tpl-up" data-i="${i}"
+                  ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+          <button class="routine-ex-btn" data-act="tpl-down" data-i="${i}"
+                  ${i === draft.entries.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+          <button class="routine-ex-btn danger" data-act="tpl-remove" data-i="${i}"
+                  aria-label="Remove">×</button>
+        </div>
+        <div class="routine-ex-target">
+          <input class="mini" type="text" inputmode="numeric" data-tpl="sets" data-i="${i}"
+                 placeholder="3" value="${entry.target_sets ?? ''}" aria-label="Target sets">
+          <span class="routine-ex-x">×</span>
+          <input class="mini" type="text" inputmode="numeric" data-tpl="reps" data-i="${i}"
+                 placeholder="8" value="${entry.target_reps ?? ''}" aria-label="Target reps">
+          <span class="routine-ex-hint">sets × reps</span>
+        </div>
       </li>`;
   }).join('');
 
@@ -328,7 +353,7 @@ function renderTemplateSheet() {
 
       <div class="field">
         <label>Exercises, in order</label>
-        ${draft.exerciseIds.length
+        ${draft.entries.length
           ? `<ul class="routine-ex-list">${rows}</ul>`
           : '<p class="hint">Nothing added yet.</p>'}
         <button class="btn btn-quiet btn-block" data-act="tpl-add">+ Add exercise</button>
@@ -442,6 +467,22 @@ function renderLogSheet() {
     ? `Last time: ${escapeHTML(describeSet(state.sheet.last, exercise))}`
     : 'First time logging this one.';
 
+  const { target, e1rm, suggested } = state.sheet;
+  const targetText = target
+    ? `Target ${[target.sets, target.reps].filter(Boolean).join(' × ')}`
+    : '';
+  const targetLine = (targetText || suggested) ? `
+    <div class="target-line">
+      ${targetText ? `<span class="target-text">${escapeHTML(targetText)}</span>` : ''}
+      ${suggested ? `
+        <button class="suggest-chip" data-act="use-suggested" data-weight="${suggested}">
+          Try ${formatWeight(suggested)} lbs
+        </button>
+        <span class="suggest-why">
+          from an estimated 1RM of ${Math.round(e1rm)}, leaving ~2 reps in reserve
+        </span>` : ''}
+    </div>` : '';
+
   const prior = state.sheet.priorNote;
   const priorNote = prior ? `
     <div class="prior-note">
@@ -503,6 +544,7 @@ function renderLogSheet() {
 
       ${renderRestBar()}
       ${priorNote}
+      ${targetLine}
       <p class="last-line">${lastLine}</p>
 
       ${weightField}
@@ -633,6 +675,17 @@ async function openLogSheet(exerciseId) {
   const exercise = exerciseById(exerciseId);
   const last = await store.lastSetFor(exerciseId);
   const reference = await store.lastWorkSetFor(exerciseId);
+  const target = state.targets.get(exerciseId) || null;
+
+  // A suggestion only makes sense for weight-based work with recent history.
+  const e1rm = exercise?.tracks === 'weight_reps'
+    ? await store.bestE1RMFor(exerciseId)
+    : null;
+  const targetReps = target?.reps ?? null;
+  const suggested = suggestWeight(e1rm, targetReps);
+
+  // Has anything been logged for this exercise in this session yet?
+  const startedHere = state.sets.some((s) => s.exercise_id === exerciseId);
   const note = await store.getNote(state.workout.id, exerciseId);
   const priorNote = await store.lastNoteFor(exerciseId, {
     placeId: state.workout.place_id,
@@ -644,12 +697,20 @@ async function openLogSheet(exerciseId) {
     exerciseId,
     last,
     reference,
+    target,
+    e1rm,
+    suggested,
     pendingConfirm: null,
     priorNote,
     note: note?.body || '',
     draft: {
+      // The suggestion is offered, never imposed: weight prefills from what you
+      // actually lifted last time, which is evidence rather than arithmetic.
       weight: last?.weight ?? (exercise?.tracks === 'bodyweight_reps' ? 0 : 45),
-      reps: last?.reps ?? (exercise?.tracks === 'time' ? null : 8),
+      // Reps follow the routine's target until the first set is in, after
+      // which they follow what you just did.
+      reps: (!startedHere && targetReps) || last?.reps
+        || (exercise?.tracks === 'time' ? null : 8),
       seconds: last?.seconds ?? (exercise?.tracks === 'time' ? 30 : null),
       rpe: last?.rpe ?? null,
       failed: 0,
@@ -671,6 +732,24 @@ function readSheetInputs() {
 
   const note = root.querySelector('#fNote');
   if (note) state.sheet.note = note.value;
+}
+
+/* The routine editor re-renders on reorder and removal, which would otherwise
+   throw away numbers typed but not yet committed. */
+function readTemplateInputs() {
+  if (state.sheet?.type !== 'template' || !state.templateDraft) return;
+
+  const nameField = root.querySelector('#tplName');
+  if (nameField) state.templateDraft.name = nameField.value;
+
+  for (const input of root.querySelectorAll('input[data-tpl]')) {
+    const entry = state.templateDraft.entries[Number(input.dataset.i)];
+    if (!entry) continue;
+    const raw = input.value.trim();
+    const value = raw === '' ? null : Number(raw);
+    const field = input.dataset.tpl === 'sets' ? 'target_sets' : 'target_reps';
+    entry[field] = Number.isFinite(value) && value > 0 ? value : null;
+  }
 }
 
 function queueNoteSave() {
@@ -843,8 +922,10 @@ async function onClick(event) {
     case 'choose': {
       const id = trigger.dataset.ex;
       if (state.sheet.mode === 'template') {
-        if (!state.templateDraft.exerciseIds.includes(id)) {
-          state.templateDraft.exerciseIds.push(id);
+        if (!state.templateDraft.entries.some((e) => e.exercise_id === id)) {
+          state.templateDraft.entries.push({
+            exercise_id: id, target_sets: null, target_reps: null,
+          });
         }
         state.sheet = { type: 'template' };
         return render();
@@ -860,8 +941,10 @@ async function onClick(event) {
       state.exercises = await store.listExercises();
 
       if (state.sheet.mode === 'template') {
-        if (!state.templateDraft.exerciseIds.includes(exercise.id)) {
-          state.templateDraft.exerciseIds.push(exercise.id);
+        if (!state.templateDraft.entries.some((e) => e.exercise_id === exercise.id)) {
+          state.templateDraft.entries.push({
+            exercise_id: exercise.id, target_sets: null, target_reps: null,
+          });
         }
         state.sheet = { type: 'template' };
         return render();
@@ -880,7 +963,7 @@ async function onClick(event) {
 
     case 'new-template':
       state.templateDraft = {
-        id: null, name: '', placeId: state.lastPlaceId, exerciseIds: [], confirmDelete: false,
+        id: null, name: '', placeId: state.lastPlaceId, entries: [], confirmDelete: false,
       };
       state.sheet = { type: 'template' };
       return render();
@@ -893,7 +976,11 @@ async function onClick(event) {
         id: template.id,
         name: template.name,
         placeId: template.place_id,
-        exerciseIds: entries.map((e) => e.exercise.id),
+        entries: entries.map(({ row, exercise }) => ({
+          exercise_id: exercise.id,
+          target_sets: row.target_sets ?? null,
+          target_reps: row.target_reps ?? null,
+        })),
         confirmDelete: false,
       };
       state.sheet = { type: 'template' };
@@ -901,42 +988,45 @@ async function onClick(event) {
     }
 
     case 'tpl-add':
+      readTemplateInputs();
       state.sheet = { type: 'picker', query: '', mode: 'template' };
       return render();
 
     case 'tpl-place':
+      readTemplateInputs();
       state.templateDraft.placeId = trigger.dataset.place || null;
       return render();
 
     case 'tpl-up':
     case 'tpl-down': {
+      readTemplateInputs();
       const i = Number(trigger.dataset.i);
       const to = act === 'tpl-up' ? i - 1 : i + 1;
-      const ids = state.templateDraft.exerciseIds;
-      if (to < 0 || to >= ids.length) return;
-      [ids[i], ids[to]] = [ids[to], ids[i]];
+      const entries = state.templateDraft.entries;
+      if (to < 0 || to >= entries.length) return;
+      [entries[i], entries[to]] = [entries[to], entries[i]];
       return render();
     }
 
     case 'tpl-remove':
-      state.templateDraft.exerciseIds.splice(Number(trigger.dataset.i), 1);
+      readTemplateInputs();
+      state.templateDraft.entries.splice(Number(trigger.dataset.i), 1);
       return render();
 
     case 'tpl-save': {
-      const nameField = root.querySelector('#tplName');
-      if (nameField) state.templateDraft.name = nameField.value;
+      readTemplateInputs();
       const name = state.templateDraft.name.trim();
       if (!name) {
-        nameField?.focus();
+        root.querySelector('#tplName')?.focus();
         return;
       }
-      const { id, placeId, exerciseIds } = state.templateDraft;
+      const { id, placeId, entries } = state.templateDraft;
       if (id) {
         const template = state.templates.find((t) => t.id === id);
         await store.updateTemplate(template, { name, place_id: placeId });
-        await store.setTemplateExercises(id, exerciseIds);
+        await store.setTemplateExercises(id, entries);
       } else {
-        await store.createTemplate({ name, place_id: placeId, exerciseIds });
+        await store.createTemplate({ name, place_id: placeId, exercises: entries });
       }
       state.templateDraft = null;
       state.sheet = null;
@@ -1036,6 +1126,10 @@ async function onClick(event) {
 
     case 'drop-set':
       return logCurrent({ isDrop: true });
+
+    case 'use-suggested':
+      state.sheet.draft.weight = Number(trigger.dataset.weight);
+      return render();
 
     case 'rest-start':
       await startRest(Number(trigger.dataset.secs));

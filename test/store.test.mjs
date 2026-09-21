@@ -4,7 +4,10 @@
 
 import 'fake-indexeddb/auto';
 import * as store from '../js/store.js';
-import { shouldConfirmWeight, shouldConfirmReps, checkSet } from '../js/rules.js';
+import {
+  shouldConfirmWeight, shouldConfirmReps, checkSet,
+  effectiveReps, estimate1RM, bestE1RM, suggestWeight, modeOf,
+} from '../js/rules.js';
 
 let passed = 0;
 let failed = 0;
@@ -410,6 +413,124 @@ check('deleting removes it from the list',
   (await store.listTemplates()).length === before - 1);
 check('and takes its exercise rows with it',
   (await store.templateExercises(saved.id)).length === 0);
+
+await store.discardWorkout(await store.getActiveWorkout());
+
+
+// ---------- estimated 1RM ----------
+
+const nowISO = new Date().toISOString();
+const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+const workSet = (extra) => ({
+  weight: 185, reps: 8, rpe: 8, failed: 0, is_warmup: 0, is_dropset: 0,
+  created_at: nowISO, ...extra,
+});
+
+check('RPE counts reps left in reserve', effectiveReps(workSet({})) === 10);
+check('a set at RPE 10 has none in reserve', effectiveReps(workSet({ rpe: 10 })) === 8);
+check('no RPE is treated as none in reserve', effectiveReps(workSet({ rpe: null })) === 8);
+
+check('e1RM from 185 x 8 @ 8 is about 247',
+  Math.round(estimate1RM(workSet({}))) === 247, `got ${estimate1RM(workSet({}))}`);
+check('the same set without RPE estimates lower',
+  estimate1RM(workSet({ rpe: null })) < estimate1RM(workSet({})));
+check('a failed set is not evidence of strength',
+  estimate1RM(workSet({ failed: 1 })) === null);
+check('a warmup is not evidence either',
+  estimate1RM(workSet({ is_warmup: 1 })) === null);
+check('bodyweight with no load gives nothing',
+  estimate1RM(workSet({ weight: 0 })) === null);
+check('too many effective reps declines to answer',
+  estimate1RM(workSet({ reps: 12, rpe: 6 })) === null);
+check('right at the limit still answers',
+  estimate1RM(workSet({ reps: 12, rpe: 10 })) !== null);
+
+// Recency.
+check('a recent set counts', bestE1RM([workSet({ created_at: daysAgo(10) })]) !== null);
+check('a stale set is ignored entirely',
+  bestE1RM([workSet({ created_at: daysAgo(90) })]) === null);
+check('the best recent set wins',
+  Math.round(bestE1RM([
+    workSet({ weight: 185, created_at: daysAgo(5) }),
+    workSet({ weight: 205, created_at: daysAgo(2) }),
+  ])) === 273);
+check('a stale peak cannot beat recent work',
+  Math.round(bestE1RM([
+    workSet({ weight: 315, created_at: daysAgo(120) }),
+    workSet({ weight: 185, created_at: daysAgo(2) }),
+  ])) === 247);
+check('no qualifying sets gives no estimate', bestE1RM([]) === null);
+
+// ---------- weight suggestions ----------
+
+const e1rm = estimate1RM(workSet({}));
+check('suggesting for the same reps returns the same weight',
+  suggestWeight(e1rm, 8) === 185, `got ${suggestWeight(e1rm, 8)}`);
+check('fewer reps suggests more weight', suggestWeight(e1rm, 5) === 200);
+check('more reps suggests less weight', suggestWeight(e1rm, 12) === 170);
+check('heavier weights round to 5', suggestWeight(400, 5) % 5 === 0);
+check('lighter weights round to 2.5', suggestWeight(80, 10) === 57.5);
+check('no estimate means no suggestion', suggestWeight(null, 8) === null);
+check('no target reps means no suggestion', suggestWeight(e1rm, null) === null);
+check('a lower target RPE suggests a lighter weight',
+  suggestWeight(e1rm, 8, 6) < suggestWeight(e1rm, 8, 8));
+
+// ---------- inferring targets from a session ----------
+
+check('the common rep count wins', modeOf([8, 8, 7]) === 8);
+check('a tie has no winner', modeOf([5, 8]) === null);
+check('a single value is its own mode', modeOf([5]) === 5);
+check('nothing in, nothing out', modeOf([]) === null);
+
+// ---------- targets on routines ----------
+
+const targeted = await store.createTemplate({
+  name: 'Targets', place_id: null,
+  exercises: [
+    { exercise_id: bench.id, target_sets: 3, target_reps: 8 },
+    { exercise_id: press.id, target_sets: 4, target_reps: 6 },
+  ],
+});
+const targetRows = await store.templateExercises(targeted.id);
+check('targets are stored per exercise',
+  targetRows[0].row.target_sets === 3 && targetRows[0].row.target_reps === 8);
+check('and differ per exercise',
+  targetRows[1].row.target_sets === 4 && targetRows[1].row.target_reps === 6);
+
+check('plain ids still work and mean no target',
+  (await store.templateExercises(
+    (await store.createTemplate({ name: 'Untargeted', exerciseIds: [bench.id] })).id
+  ))[0].row.target_sets === null);
+
+await store.discardWorkout(await store.getActiveWorkout());
+const targetedSession = await store.startWorkout({ templateId: targeted.id });
+const sessionTargets = await store.targetsForWorkout(targetedSession);
+check('a session exposes its routine targets',
+  sessionTargets.get(bench.id).sets === 3 && sessionTargets.get(bench.id).reps === 8);
+check('a session with no routine has no targets',
+  (await store.targetsForWorkout({ template_id: null })).size === 0);
+
+// Saving a session infers its targets from what was actually done.
+await store.addSet({ workout_id: targetedSession.id, exercise_id: bench.id, weight: 185, reps: 8, rpe: 8 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: targetedSession.id, exercise_id: bench.id, weight: 185, reps: 8, rpe: 9 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: targetedSession.id, exercise_id: bench.id, weight: 185, reps: 7, rpe: 10 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: targetedSession.id, exercise_id: bench.id, weight: 135, reps: 12, is_warmup: 1 });
+
+const inferred = await store.createTemplateFromWorkout(
+  await store.getActiveWorkout(), 'Inferred');
+const inferredRows = await store.templateExercises(inferred.id);
+check('inferred sets count only working sets',
+  inferredRows[0].row.target_sets === 3, `got ${inferredRows[0].row.target_sets}`);
+check('inferred reps take the most common value',
+  inferredRows[0].row.target_reps === 8, `got ${inferredRows[0].row.target_reps}`);
+
+// And the estimate is available for the suggestion.
+const benchE1RM = await store.bestE1RMFor(bench.id);
+check('an estimate is available after real sets', benchE1RM > 0);
+check('which produces a usable suggestion', suggestWeight(benchE1RM, 5) > 0);
 
 await store.discardWorkout(await store.getActiveWorkout());
 
