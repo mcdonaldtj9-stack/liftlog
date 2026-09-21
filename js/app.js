@@ -2,7 +2,7 @@
 
 import * as train from './train.js';
 
-const BUILD = '5';
+const BUILD = '6';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -78,6 +78,14 @@ function reportGeometry() {
   setText('viewportSize', `${window.innerWidth}×${window.innerHeight}`);
   setText('screenSize',
     `${screen.width}×${screen.height} @${window.devicePixelRatio}`);
+
+  const vv = window.visualViewport;
+  setText('visualVp', vv
+    ? `${Math.round(vv.width)}×${Math.round(vv.height)} top${Math.round(vv.offsetTop)}`
+    : 'Not supported');
+
+  const os = navigator.userAgent.match(/OS (\d+(?:_\d+)*)/);
+  setText('iosVersion', os ? os[1].replace(/_/g, '.') : 'Unknown');
 }
 
 reportGeometry();
