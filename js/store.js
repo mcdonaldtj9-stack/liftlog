@@ -17,6 +17,7 @@ export function nameKey(name) {
 export async function init() {
   await db.open();
   await seedPlaces();
+  await sweepOrphanNotes();
 
   const seeded = await db.getMeta('seeded_at');
   if (seeded) return;
@@ -36,6 +37,21 @@ export async function init() {
   }
 
   await db.setMeta('seeded_at', db.nowISO());
+}
+
+/* Builds before this one discarded a session's sets but not its notes. Tidy
+   any strays so they stop occupying the server. Cheap enough to run on every
+   start, and a no-op once there is nothing to find. */
+async function sweepOrphanNotes() {
+  const notes = (await db.getAll('exercise_notes')).filter(db.isLive);
+  if (!notes.length) return 0;
+
+  const workouts = new Map((await db.getAll('workouts')).map((w) => [w.id, w]));
+  const orphans = notes.filter((n) => workouts.get(n.workout_id)?.deleted);
+  if (orphans.length) {
+    await db.putMany('exercise_notes', orphans.map((n) => db.touch(n, { deleted: 1 })));
+  }
+  return orphans.length;
 }
 
 /* Places arrived after the first release, so this is seeded on its own key
@@ -349,6 +365,13 @@ export async function discardWorkout(workout) {
   const sets = await setsForWorkout(workout.id);
   if (sets.length) {
     await db.putMany('sets', sets.map((s) => db.touch(s, { deleted: 1 })));
+  }
+  // Notes belong to the session too. Leaving them live would strand them on
+  // the server forever, attached to a workout that no longer exists.
+  const notes = (await db.getAllByIndex('exercise_notes', 'by_workout', workout.id))
+    .filter(db.isLive);
+  if (notes.length) {
+    await db.putMany('exercise_notes', notes.map((n) => db.touch(n, { deleted: 1 })));
   }
   const next = db.touch(workout, { deleted: 1 });
   await db.put('workouts', next);

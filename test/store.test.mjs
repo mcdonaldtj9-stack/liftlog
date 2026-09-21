@@ -534,5 +534,27 @@ check('which produces a usable suggestion', suggestWeight(benchE1RM, 5) > 0);
 
 await store.discardWorkout(await store.getActiveWorkout());
 
+
+// ---------- discarding takes its notes with it ----------
+
+await store.discardWorkout(await store.getActiveWorkout());
+const noteSession = await store.startWorkout();
+await store.saveNote({ workout_id: noteSession.id, exercise_id: bench.id, body: 'gone with the session' });
+await store.discardWorkout(noteSession);
+check('discarding a session deletes its notes',
+  (await store.getNote(noteSession.id, bench.id)) === null);
+
+// A stray left behind by an older build is swept on the next start.
+const { put: rawPut, get: rawGet, newRecord } = await import('../js/db.js');
+const strayWorkout = newRecord({ started_at: new Date().toISOString(), ended_at: null, deleted: 1 });
+await rawPut('workouts', strayWorkout);
+const strayNote = newRecord({ workout_id: strayWorkout.id, exercise_id: bench.id, body: 'stray' });
+await rawPut('exercise_notes', strayNote);
+await store.init();
+check('a stray note on a deleted session is swept at start',
+  (await rawGet('exercise_notes', strayNote.id)).deleted === 1);
+check('and marked for upload so the server hears about it',
+  (await rawGet('exercise_notes', strayNote.id)).dirty === 1);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
