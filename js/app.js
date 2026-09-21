@@ -2,7 +2,7 @@
 
 import * as train from './train.js';
 
-const BUILD = '4';
+const BUILD = '5';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
