@@ -13,8 +13,12 @@ assume you always train in the same place. This one doesn't.
 
 - **Unlimited custom exercises.** No cap, no upsell.
 - **RPE on every set.** 6–10 in half steps, optional so warmups skip it.
-- **Gym-aware.** Detects which of your locations you're at and defaults to what
-  you normally do there. Never blocks the start of a workout waiting on GPS.
+- **Gym-aware.** Notes you write against an exercise come back the next time you
+  do it at that same gym. Location is picked by hand today; GPS auto-detect is
+  next, and will never block the start of a workout waiting on a fix.
+- **Rest timer** storing an absolute deadline, so locking the phone doesn't stop
+  it. Beeps on finish. iOS has no vibration API for web apps, so a notification
+  (system sound + haptic) is the closest substitute and is opt-in.
 - **Local-first.** Every set is written to IndexedDB the instant you tap. Sync to
   Supabase happens in the background. The app works with no signal and no server.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
@@ -43,10 +47,11 @@ silent data bug would cost a logged workout belongs in it.
 
 1. ✅ App shell, manifest, service worker, deploy
 2. ✅ Exercises + set logging with RPE (local only)
-3. Places + auto-detect
-4. Supabase schema, auth, sync queue
-5. Bodyweight + weigh-in nudge
-6. History, PRs / estimated 1RM, volume charts
+3. ✅ Rest timer, drop sets, failed sets, per-exercise notes, manual locations
+4. GPS auto-detect for locations
+5. Supabase schema, auth, sync queue
+6. Bodyweight + weigh-in nudge
+7. History, PRs / estimated 1RM, volume charts
 
 ## Notes
 

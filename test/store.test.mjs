@@ -118,5 +118,89 @@ check('discard removes its sets', (await store.setsForWorkout(throwaway.id)).len
 check('discard stays out of recents',
   (await store.recentWorkouts()).every((w) => w.id !== throwaway.id));
 
+
+// ---------- places ----------
+
+const places = await store.listPlaces();
+check('seeds the three gyms', places.length === 3, `got ${places.length}`);
+check('places start without coordinates', places.every((p) => p.lat === null && p.radius_m === 250));
+
+const fenton = places.find((p) => p.name.includes('Fenton'));
+const garage = places.find((p) => p.name.includes('Garage'));
+
+const placed = await store.startWorkout();
+await store.setWorkoutPlace(placed, fenton.id);
+const reloaded = await store.getActiveWorkout();
+check('workout takes a location', reloaded.place_id === fenton.id);
+
+await store.finishWorkout(reloaded);
+const nextOne = await store.startWorkout();
+check('next session defaults to the last location used', nextOne.place_id === fenton.id);
+
+// ---------- drop sets ----------
+
+await store.addSet({ workout_id: nextOne.id, exercise_id: bench.id, weight: 225, reps: 5, rpe: 9 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: nextOne.id, exercise_id: bench.id, weight: 180, reps: 6, is_dropset: 1 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: nextOne.id, exercise_id: bench.id, weight: 135, reps: 8, is_dropset: 1 });
+await new Promise((r) => setTimeout(r, 2));
+const topSet2 = await store.addSet({ workout_id: nextOne.id, exercise_id: bench.id, weight: 225, reps: 4 });
+
+const dropSets = await store.setsForWorkout(nextOne.id);
+check('drops reuse the parent set number',
+  dropSets.map((s) => s.set_index).join(',') === '1,1,1,2',
+  dropSets.map((s) => s.set_index).join(','));
+check('drops are flagged', dropSets.map((s) => s.is_dropset).join(',') === '0,1,1,0');
+check('a drop does not inflate the next top set number', topSet2.set_index === 2);
+
+// ---------- failed sets ----------
+
+const failedSet = await store.addSet({
+  workout_id: nextOne.id, exercise_id: bench.id, weight: 245, reps: 1, rpe: 9, failed: 1,
+});
+check('failure is recorded', failedSet.failed === 1);
+check('a failed set carries no RPE', failedSet.rpe === null);
+
+// ---------- notes ----------
+
+await store.saveNote({ workout_id: nextOne.id, exercise_id: bench.id, body: 'Too light, +10 next time' });
+check('note saves against the session and exercise',
+  (await store.getNote(nextOne.id, bench.id)).body === 'Too light, +10 next time');
+
+await store.saveNote({ workout_id: nextOne.id, exercise_id: bench.id, body: 'Edited' });
+check('editing updates rather than duplicating',
+  (await store.getNote(nextOne.id, bench.id)).body === 'Edited');
+
+await store.finishWorkout(nextOne);
+
+// A later session at the SAME gym should see that note.
+const atFenton = await store.startWorkout();
+await store.setWorkoutPlace(atFenton, fenton.id);
+const seenAtFenton = await store.lastNoteFor(bench.id, {
+  placeId: fenton.id, excludeWorkoutId: atFenton.id,
+});
+check('note comes back at the same location', seenAtFenton?.note.body === 'Edited');
+check('and is marked as this location', seenAtFenton?.sameLocation === true);
+check('and names the place', seenAtFenton?.place?.id === fenton.id);
+
+// A session at a DIFFERENT gym falls back, but flags where it came from.
+const seenAtGarage = await store.lastNoteFor(bench.id, {
+  placeId: garage.id, excludeWorkoutId: atFenton.id,
+});
+check('falls back to another location when there is nothing local',
+  seenAtGarage?.note.body === 'Edited');
+check('and flags that it is from a different gym', seenAtGarage?.sameLocation === false);
+
+check('no note for an exercise never commented on',
+  (await store.lastNoteFor(plank.id, { placeId: fenton.id })) === null);
+
+// The note is joined through its workout, so moving a session moves its notes.
+await store.saveNote({ workout_id: atFenton.id, exercise_id: plank.id, body: 'Fenton specific' });
+await store.setWorkoutPlace(atFenton, garage.id);
+const afterMove = await store.lastNoteFor(plank.id, { placeId: garage.id });
+check('a note follows its session when the location changes',
+  afterMove?.note.body === 'Fenton specific' && afterMove.sameLocation === true);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -1,8 +1,9 @@
 /* LiftLog — app shell: navigation, service-worker install, diagnostics. */
 
 import * as train from './train.js';
+import * as rest from './rest.js';
 
-const BUILD = '6';
+const BUILD = '7';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -100,6 +101,30 @@ if (navigator.storage?.persist) {
 } else {
   setText('storageState', 'Not supported');
 }
+
+/* ---------- rest alerts ---------- */
+
+const NOTIFY_LABEL = {
+  granted: 'On ✓',
+  denied: 'Blocked in iOS Settings',
+  default: 'Not enabled',
+  unsupported: 'Not supported',
+};
+
+function showNotifyState() {
+  const state = rest.notificationState();
+  setText('notifyState', NOTIFY_LABEL[state] || state);
+  const button = document.getElementById('enableNotify');
+  if (button) button.hidden = state !== 'default';
+}
+
+showNotifyState();
+
+document.getElementById('enableNotify')?.addEventListener('click', async () => {
+  await rest.requestNotifications();
+  rest.unlockAudio();   // same tap also unlocks audio for the beep
+  showNotifyState();
+});
 
 /* ---------- boot ---------- */
 

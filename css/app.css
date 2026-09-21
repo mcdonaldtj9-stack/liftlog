@@ -468,6 +468,118 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .btn-log { min-height: 58px; font-size: 18px; }
 
+/* ---------- rest timer ---------- */
+
+.rest-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.rest-bar.is-running { border-color: var(--accent); }
+.rest-bar.is-done {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface));
+}
+.rest-clock {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.rest-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rest-bar.is-done .rest-label { color: var(--danger); }
+.rest-bar .btn-link { margin-left: auto; }
+.rest-presets { display: flex; gap: 8px; flex: 1; margin-left: auto; }
+.rest-presets .chip { min-height: 44px; font-size: 14px; }
+
+/* ---------- prior note ---------- */
+
+.prior-note {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 12px;
+}
+.prior-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.prior-where.same { color: var(--accent); }
+.prior-where.other { color: var(--muted); font-style: italic; }
+.prior-note p { margin: 0; font-size: 15px; line-height: 1.45; }
+
+/* ---------- notes ---------- */
+
+.note-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;   /* 16px+ stops iOS zooming on focus */
+  line-height: 1.4;
+  resize: vertical;
+}
+.note-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.notes-field { margin-top: 4px; }
+
+/* ---------- log actions ---------- */
+
+.log-actions { display: flex; gap: 10px; margin-bottom: 20px; }
+.log-actions .btn-log { flex: 1; margin: 0; }
+.btn-drop { flex: none; min-height: 58px; padding: 0 18px; font-size: 16px; }
+.btn-drop[disabled] { opacity: 0.4; }
+
+/* ---------- drop sets, fails, places ---------- */
+
+.set-row.is-drop { padding-left: 16px; }
+.set-row.is-drop .set-n { background: transparent; color: var(--accent); }
+.tag-fail { color: var(--danger); background: color-mix(in srgb, var(--danger) 20%, transparent); }
+.chip.fail { color: var(--danger); font-weight: 800; }
+.chip.fail.is-on { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+.place-pick {
+  margin-left: auto;
+  max-width: 62%;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pick-row.is-on { border-color: var(--accent); }
+.pick-row.is-on .pick-name { color: var(--accent); }
+
 /* The fixed tab bar sits exactly where the iOS keyboard opens. */
 body.kb-open .tabbar { display: none; }
 

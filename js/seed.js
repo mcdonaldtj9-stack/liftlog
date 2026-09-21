@@ -11,6 +11,14 @@
      'bodyweight_reps' optional added weight x reps (pull-ups, dips, push-ups)
      'time'            duration in seconds      (planks, carries, holds) */
 
+/* Your gyms. Coordinates are captured on site in step 3; until then you pick
+   the location by hand and everything place-aware already works. */
+export const SEED_PLACES = [
+  'Planet Fitness — Fenton',
+  'Planet Fitness — Effingham',
+  'Effingham Garage',
+];
+
 export const MUSCLE_GROUPS = [
   'Chest', 'Back', 'Shoulders', 'Quads', 'Hamstrings',
   'Glutes', 'Calves', 'Biceps', 'Triceps', 'Core', 'Other',
