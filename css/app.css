@@ -574,6 +574,20 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .weight-confirm .confirm-actions .btn { flex: 1; min-height: 52px; }
 
+.confirm-issues {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.confirm-issues li {
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.confirm-issues li:last-child { border-bottom: 0; }
+.confirm-issues strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+
 /* ---------- drop sets, fails, places ---------- */
 
 .set-row.is-drop { padding-left: 16px; }

@@ -4,7 +4,7 @@
 
 import 'fake-indexeddb/auto';
 import * as store from '../js/store.js';
-import { shouldConfirmWeight } from '../js/rules.js';
+import { shouldConfirmWeight, shouldConfirmReps, checkSet } from '../js/rules.js';
 
 let passed = 0;
 let failed = 0;
@@ -216,11 +216,15 @@ const jump = (weight, reference, exercise = lifting, extra = {}) =>
 
 check('a 5.4% jump asks for confirmation', jump(195, ref(185)) !== null);
 check('and reports the percentage', jump(195, ref(185)).percent === 5);
-check('and carries both numbers', 
-  jump(195, ref(185)).weight === 195 && jump(195, ref(185)).previous === 185);
+check('and carries both numbers',
+  jump(195, ref(185)).value === 195 && jump(195, ref(185)).previous === 185);
 check('a 2.7% jump passes silently', jump(190, ref(185)) === null);
 check('exactly 5% passes', jump(105, ref(100)) === null);
-check('just over 5% stops you', jump(106, ref(100)) !== null);
+check('over 5% but under 10 lbs stays quiet', jump(106, ref(100)) === null);
+check('over 5% and over 10 lbs stops you', jump(111, ref(100)) !== null);
+check('a big absolute jump under 5% stays quiet', jump(410, ref(400)) === null);
+check('a 25% cable jump of 5 lbs stays quiet', jump(25, ref(20)) === null);
+check('the same 25% on real weight stops you', jump(250, ref(200)) !== null);
 check('a fat-fingered extra digit is caught', jump(1850, ref(185)).percent === 900);
 check('same weight passes', jump(185, ref(185)) === null);
 check('going down passes', jump(135, ref(185)) === null);
@@ -260,6 +264,56 @@ await store.addSet({ workout_id: refWorkout.id, exercise_id: curl.id, weight: 30
 check('warmups alone leave no baseline', (await store.lastWorkSetFor(curl.id)) === null);
 
 await store.discardWorkout(await store.getActiveWorkout());
+
+
+// ---------- rep sanity check ----------
+
+const repRef = (reps) => ({ reps, weight: 185 });
+const repJump = (reps, reference, exercise = lifting, extra = {}) =>
+  shouldConfirmReps({ reps, isWarmup: 0, isDrop: false, ...extra }, reference, exercise);
+
+check('a stuck key is caught', repJump(88, repRef(8)) !== null);
+check('a big but not absurd count is reported as a jump',
+  repJump(30, repRef(8)).reason === 'jump');
+check('an absurd count is reported as implausible even with history',
+  repJump(88, repRef(8)).reason === 'implausible');
+check('12 reps after 8 is a rep scheme, not a typo', repJump(12, repRef(8)) === null);
+check('20 after 10 is a burnout set, not a typo', repJump(20, repRef(10)) === null);
+check('122 after 12 is caught', repJump(122, repRef(12)) !== null);
+check('5 after 5 passes', repJump(5, repRef(5)) === null);
+check('fewer reps passes', repJump(3, repRef(8)) === null);
+check('30 after 8 is caught', repJump(30, repRef(8)) !== null);
+check('15 after 5 needs both ratio and gap', repJump(15, repRef(5)) !== null);
+check('12 after 4 clears the ratio but not the gap', repJump(12, repRef(4)) === null);
+
+check('an implausible count is caught with no history at all',
+  repJump(88, null) !== null);
+check('and flagged as implausible', repJump(88, null).reason === 'implausible');
+check('a plausible count with no history passes', repJump(12, null) === null);
+check('50 passes, 51 does not',
+  repJump(50, null) === null && repJump(51, null) !== null);
+
+check('warmup reps are not compared', repJump(20, repRef(5), lifting, { isWarmup: 1 }) === null);
+check('drop set reps are not compared', repJump(20, repRef(5), lifting, { isDrop: true }) === null);
+check('but an implausible warmup is still caught',
+  repJump(88, repRef(5), lifting, { isWarmup: 1 }) !== null);
+check('time-tracked exercises are not rep checked', repJump(88, repRef(5), timed) === null);
+
+// ---------- both at once ----------
+
+const both = checkSet(
+  { weight: 315, reps: 88, isWarmup: 0, isDrop: false }, { weight: 185, reps: 8 }, lifting);
+check('a set wrong in two ways reports both', both.length === 2, `got ${both.length}`);
+check('weight is listed first', both[0].kind === 'weight' && both[1].kind === 'reps');
+
+const clean = checkSet(
+  { weight: 190, reps: 8, isWarmup: 0, isDrop: false }, { weight: 185, reps: 8 }, lifting);
+check('a normal set reports nothing', clean.length === 0);
+
+const weightOnly = checkSet(
+  { weight: 315, reps: 8, isWarmup: 0, isDrop: false }, { weight: 185, reps: 8 }, lifting);
+check('only the weight is flagged when only it is odd',
+  weightOnly.length === 1 && weightOnly[0].kind === 'weight');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

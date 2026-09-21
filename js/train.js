@@ -4,7 +4,7 @@
 
 import * as store from './store.js';
 import * as rest from './rest.js';
-import { shouldConfirmWeight } from './rules.js';
+import { checkSet } from './rules.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
@@ -62,6 +62,29 @@ function describeSet(set, exercise) {
     return `${added} × ${set.reps ?? 0}${grade}`;
   }
   return `${formatWeight(set.weight ?? 0)} × ${set.reps ?? 0}${grade}`;
+}
+
+/* What the confirm button restates — the whole set, so the second look is at
+   the actual numbers rather than at the word "OK". */
+function describeDraft(draft, exercise) {
+  if (exercise?.tracks === 'time') return formatDuration(draft.seconds || 0);
+  const weight = exercise?.tracks === 'bodyweight_reps' && !draft.weight
+    ? 'BW'
+    : formatWeight(draft.weight ?? 0);
+  return `${weight} × ${draft.reps ?? 0}`;
+}
+
+function describeIssue(issue) {
+  if (issue.kind === 'weight') {
+    return `<li><strong>${formatWeight(issue.value)} lbs</strong> — that's
+      ${issue.percent}% over your last working set of
+      ${formatWeight(issue.previous)}.</li>`;
+  }
+  if (issue.reason === 'implausible') {
+    return `<li><strong>${issue.value} reps</strong> — that's a lot. Sure?</li>`;
+  }
+  return `<li><strong>${issue.value} reps</strong> — your last working set was
+    ${issue.previous}.</li>`;
 }
 
 function formatDate(iso) {
@@ -365,15 +388,14 @@ function renderLogSheet() {
 
       ${state.sheet.pendingConfirm ? `
         <div class="weight-confirm">
-          <p class="weight-confirm-lead">
-            <strong>${formatWeight(state.sheet.pendingConfirm.weight)} lbs</strong>
-            — that's ${state.sheet.pendingConfirm.percent}% over your last working
-            set of ${formatWeight(state.sheet.pendingConfirm.previous)}.
-          </p>
+          <p class="weight-confirm-lead">Worth a second look:</p>
+          <ul class="confirm-issues">
+            ${state.sheet.pendingConfirm.issues.map(describeIssue).join('')}
+          </ul>
           <div class="confirm-actions">
             <button class="btn btn-quiet" data-act="cancel-log">Back</button>
             <button class="btn btn-danger" data-act="confirm-log">
-              Log ${formatWeight(state.sheet.pendingConfirm.weight)}
+              Log ${escapeHTML(describeDraft(draft, exercise))}
             </button>
           </div>
         </div>` : `
@@ -565,15 +587,15 @@ async function logCurrent({ isDrop, confirmed = false }) {
   // Guard against logging an empty set by accident.
   if (exercise.tracks === 'time' ? !draft.seconds : !draft.reps) return;
 
-  // An unusually large jump gets a second look before it reaches the log.
+  // Anything that looks like a mis-tap gets a second look before it's logged.
   if (!confirmed) {
-    const jump = shouldConfirmWeight(
-      { weight: draft.weight, isWarmup: draft.is_warmup, isDrop },
+    const issues = checkSet(
+      { weight: draft.weight, reps: draft.reps, isWarmup: draft.is_warmup, isDrop },
       state.sheet.reference,
       exercise,
     );
-    if (jump) {
-      state.sheet.pendingConfirm = { ...jump, isDrop };
+    if (issues.length) {
+      state.sheet.pendingConfirm = { issues, isDrop };
       return render();
     }
   }

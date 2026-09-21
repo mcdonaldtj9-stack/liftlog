@@ -21,9 +21,10 @@ assume you always train in the same place. This one doesn't.
   (system sound + haptic) is the closest substitute and is opt-in.
 - **Local-first.** Every set is written to IndexedDB the instant you tap. Sync to
   Supabase happens in the background. The app works with no signal and no server.
-- **Catches typos.** A working weight more than 5% above your last working set
-  asks for confirmation before it reaches the log. Warmups, drop sets and failed
-  sets are excluded from the baseline, so it only fires on real outliers.
+- **Catches typos.** Before a set is written, an outlier weight (over 5% *and*
+  at least 10 lbs above your last working set) or an implausible rep count asks
+  you to confirm the actual numbers. Warmups, drop sets and failed attempts are
+  excluded from the baseline so it only fires on genuine outliers.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
   no keyboard unless you want one.
 
