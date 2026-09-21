@@ -661,6 +661,118 @@ button { -webkit-tap-highlight-color: transparent; }
   cursor: pointer;
 }
 
+/* ---------- history ---------- */
+
+.ch-tick { fill: #898781; font-size: 11px; font-variant-numeric: tabular-nums; }
+.ch-total { fill: var(--muted); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.row-button {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.card-list li:last-child .row-button { border-bottom: 0; }
+.row-button:active { background: var(--surface-2); }
+
+.hs-card {
+  margin-bottom: 18px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.hs-title { margin: 0; font-size: 16px; font-weight: 650; }
+.hs-sub { margin: 4px 0 10px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.hs-kicker { margin: 0 0 6px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.hs-hero { margin: 0; font-size: 44px; font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; }
+.hs-hero span { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.hs-change { margin: 4px 0 10px; font-size: 15px; font-weight: 600; }
+.hs-summary { margin: 0; font-size: 15px; }
+.hs-readout {
+  min-height: 20px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.hs-readout strong { color: var(--text); font-weight: 650; }
+
+.hs-chart { display: block; max-width: 100%; touch-action: pan-y; }
+.hs-week.is-partial path, .hs-week.is-partial rect:not(.hs-hit) { opacity: 0.5; }
+.hs-week.is-on path, .hs-week.is-on rect:not(.hs-hit) { filter: brightness(1.2); }
+.hs-dot { stroke: var(--surface); stroke-width: 2; }
+.hs-hit { cursor: pointer; }
+
+.hs-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 4px; color: var(--muted); font-size: 13px; }
+.hs-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
+
+.hs-table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 14px; }
+.hs-table th, .hs-table td { padding: 7px 0; border-top: 1px solid var(--line); text-align: right; }
+.hs-table th[scope="row"] { text-align: left; font-weight: 500; }
+.hs-table thead th { border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.hs-table td { font-variant-numeric: tabular-nums; width: 90px; }
+
+.hs-ex-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hs-ex-meta { color: var(--muted); font-size: 13px; }
+.hs-ex-best { font-size: 18px; font-weight: 700; text-align: right; white-space: nowrap; }
+.hs-ex-best small { display: block; color: var(--muted); font-size: 11px; font-weight: 600; }
+
+.hs-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.hs-filter .chip { flex: 0 1 auto; padding: 0 14px; min-height: 40px; }
+
+.hs-sets { display: flex; flex-wrap: wrap; gap: 6px; }
+.hs-set {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hs-set.is-warm { color: var(--muted); font-weight: 500; }
+.hs-set.is-drop { color: var(--accent); }
+.hs-set.is-fail { color: var(--danger); }
+.hs-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; font-style: italic; line-height: 1.4; }
+.hs-latest { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+
+.hs-rms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.hs-rms li { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.hs-rm { display: block; color: var(--muted); font-size: 12px; font-weight: 700; }
+.hs-rms strong { font-size: 18px; }
+.hs-when { display: block; color: var(--muted); font-size: 12px; }
+.hs-session-head .hs-when { display: inline; }
+
+.hs-sessions { list-style: none; margin: 0; padding: 0; }
+.hs-session { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.hs-session-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
 /* ---------- sync panel ---------- */
 
 #syncSetup .search,

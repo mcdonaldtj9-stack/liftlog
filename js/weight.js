@@ -6,8 +6,7 @@
 
 import * as store from './store.js';
 import { analyse, trendAt } from './trend.js';
-
-const DAY = 24 * 60 * 60 * 1000;
+import { DAY, escapeHTML, dayStart, shortDate, longDate, niceStep } from './chart.js';
 
 /* Categorical slots, dark steps, validated against the chart surface #171c24
    (all-pairs, CVD and contrast). A fourth scale onward folds into neutral —
@@ -43,11 +42,6 @@ const state = {
 
 /* ---------- helpers ---------- */
 
-const escapeHTML = (value) =>
-  String(value).replace(/[&<>"']/g, (ch) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
-  ));
-
 const fmt = (n) => (n == null ? '—' : Number(n).toFixed(1));
 
 const scaleKey = (placeId) => placeId || 'other';
@@ -70,11 +64,6 @@ function colorFor(key) {
   return index >= 0 && index < SCALE_COLORS.length ? SCALE_COLORS[index] : FOLDED_COLOR;
 }
 
-function dayStart(t) {
-  const d = new Date(t);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
 function daysAgo(iso) {
   return Math.round((dayStart(Date.now()) - dayStart(new Date(iso).getTime())) / DAY);
 }
@@ -84,14 +73,6 @@ function ago(iso) {
   if (n <= 0) return 'today';
   if (n === 1) return 'yesterday';
   return `${n} days ago`;
-}
-
-function shortDate(t) {
-  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function longDate(t) {
-  return new Date(t).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function todayInputValue() {
@@ -240,13 +221,6 @@ function renderEntry() {
 }
 
 /* ---------- the chart ---------- */
-
-function niceStep(span) {
-  if (span <= 4) return 1;
-  if (span <= 10) return 2;
-  if (span <= 25) return 5;
-  return 10;
-}
 
 function renderChart(analysis) {
   const range = RANGES.find((r) => r.key === state.range);

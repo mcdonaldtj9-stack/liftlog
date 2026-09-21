@@ -145,11 +145,13 @@ function sortedTemplates() {
 
 function renderIdle() {
   const recent = state.recent.map((workout) => `
-    <li class="row">
-      <span class="row-main">${escapeHTML(formatDate(workout.started_at))}</span>
-      <span class="row-sub">${workout.ended_at
-        ? formatDuration((new Date(workout.ended_at) - new Date(workout.started_at)) / 1000)
-        : ''}</span>
+    <li>
+      <button class="row row-button" data-act="open-session" data-id="${workout.id}">
+        <span class="row-main">${escapeHTML(formatDate(workout.started_at))}</span>
+        <span class="row-sub">${workout.ended_at
+          ? formatDuration((new Date(workout.ended_at) - new Date(workout.started_at)) / 1000)
+          : ''} ›</span>
+      </button>
     </li>`).join('');
 
   const templates = sortedTemplates().map((template) => {
@@ -898,6 +900,12 @@ async function onClick(event) {
     case 'place':
       state.sheet = { type: 'place' };
       return render();
+
+    case 'open-session':
+      document.dispatchEvent(new CustomEvent('liftlog:open-session', {
+        detail: { id: trigger.dataset.id },
+      }));
+      return;
 
     case 'go-weight':
       document.querySelector('.tab[data-view="weight"]')?.click();

@@ -271,6 +271,26 @@ export async function lastScaleId() {
   return value === 'other' ? null : value;
 }
 
+/* ---------- whole-history reads ----------
+   The History tab derives everything on render from these; nothing is cached,
+   so a sync can never leave a stale total behind. */
+
+export async function allSets() {
+  return (await db.getAll('sets')).filter(db.isLive);
+}
+
+export async function allWorkouts() {
+  return (await db.getAll('workouts')).filter(db.isLive);
+}
+
+export async function allNotes() {
+  return (await db.getAll('exercise_notes')).filter(db.isLive);
+}
+
+export async function allTemplates() {
+  return (await db.getAll('templates')).filter(db.isLive);
+}
+
 /* ---------- strength estimates ---------- */
 
 /* Best recent estimated 1RM for an exercise, or null when nothing in the

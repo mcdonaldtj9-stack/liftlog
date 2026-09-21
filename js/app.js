@@ -2,11 +2,12 @@
 
 import * as train from './train.js';
 import * as weight from './weight.js';
+import * as history from './historyview.js';
 import * as rest from './rest.js';
 import * as supa from './supa.js';
 import * as sync from './sync.js';
 
-const BUILD = '15';
+const BUILD = '16';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -29,6 +30,7 @@ function show(name) {
   try { sessionStorage.setItem('view', name); } catch {}
   // The chart sizes itself to its container, which measures zero while hidden.
   if (name === 'weight') weight.reload();
+  if (name === 'history') history.reload();
 }
 
 document.getElementById('tabbar').addEventListener('click', (e) => {
@@ -133,6 +135,16 @@ document.getElementById('enableNotify')?.addEventListener('click', async () => {
 
 /* ---------- boot ---------- */
 
+history.mount(document.getElementById('view-history')).catch((err) => {
+  console.error('[liftlog] history view failed to start', err);
+});
+
+/* Recent sessions on the Train tab open the full session in History. */
+document.addEventListener('liftlog:open-session', async (event) => {
+  show('history');
+  await history.openSession(event.detail.id);
+});
+
 weight.mount(document.getElementById('view-weight')).catch((err) => {
   console.error('[liftlog] weight view failed to start', err);
 });
@@ -197,6 +209,7 @@ async function runSync({ quiet = false } = {}) {
     if (result.pulled > 0) {
       await train.reload();
       await weight.reload();
+      await history.reload();
     }
     if (!quiet) {
       setMessage(result.pushed || result.pulled
