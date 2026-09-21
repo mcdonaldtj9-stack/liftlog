@@ -3,7 +3,7 @@
 import * as train from './train.js';
 import * as rest from './rest.js';
 
-const BUILD = '7';
+const BUILD = '8';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },

@@ -4,6 +4,7 @@
 
 import * as store from './store.js';
 import * as rest from './rest.js';
+import { shouldConfirmWeight } from './rules.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 
@@ -362,12 +363,26 @@ function renderLogSheet() {
         <span>Warmup set</span>
       </label>
 
-      <div class="log-actions">
-        <button class="btn btn-log" data-act="log-set">Log set</button>
-        <button class="btn btn-quiet btn-drop" data-act="drop-set" ${canDrop ? '' : 'disabled'}>
-          + Drop
-        </button>
-      </div>
+      ${state.sheet.pendingConfirm ? `
+        <div class="weight-confirm">
+          <p class="weight-confirm-lead">
+            <strong>${formatWeight(state.sheet.pendingConfirm.weight)} lbs</strong>
+            — that's ${state.sheet.pendingConfirm.percent}% over your last working
+            set of ${formatWeight(state.sheet.pendingConfirm.previous)}.
+          </p>
+          <div class="confirm-actions">
+            <button class="btn btn-quiet" data-act="cancel-log">Back</button>
+            <button class="btn btn-danger" data-act="confirm-log">
+              Log ${formatWeight(state.sheet.pendingConfirm.weight)}
+            </button>
+          </div>
+        </div>` : `
+        <div class="log-actions">
+          <button class="btn btn-log" data-act="log-set">Log set</button>
+          <button class="btn btn-quiet btn-drop" data-act="drop-set" ${canDrop ? '' : 'disabled'}>
+            + Drop
+          </button>
+        </div>`}
 
       <div class="field notes-field">
         <label for="fNote">Notes for this exercise today</label>
@@ -457,6 +472,7 @@ function onVisible() {
 async function openLogSheet(exerciseId) {
   const exercise = exerciseById(exerciseId);
   const last = await store.lastSetFor(exerciseId);
+  const reference = await store.lastWorkSetFor(exerciseId);
   const note = await store.getNote(state.workout.id, exerciseId);
   const priorNote = await store.lastNoteFor(exerciseId, {
     placeId: state.workout.place_id,
@@ -467,6 +483,8 @@ async function openLogSheet(exerciseId) {
     type: 'log',
     exerciseId,
     last,
+    reference,
+    pendingConfirm: null,
     priorNote,
     note: note?.body || '',
     draft: {
@@ -530,6 +548,7 @@ function onInput(event) {
   }
 
   if (target.dataset.field) {
+    if (state.sheet?.type === 'log') state.sheet.pendingConfirm = null;
     const raw = target.value.trim();
     const value = raw === '' ? null : Number(raw);
     state.sheet.draft[target.dataset.field] = Number.isFinite(value) ? value : null;
@@ -538,13 +557,27 @@ function onInput(event) {
   }
 }
 
-async function logCurrent({ isDrop }) {
+async function logCurrent({ isDrop, confirmed = false }) {
   readSheetInputs();
   const { draft, exerciseId } = state.sheet;
   const exercise = exerciseById(exerciseId);
 
   // Guard against logging an empty set by accident.
   if (exercise.tracks === 'time' ? !draft.seconds : !draft.reps) return;
+
+  // An unusually large jump gets a second look before it reaches the log.
+  if (!confirmed) {
+    const jump = shouldConfirmWeight(
+      { weight: draft.weight, isWarmup: draft.is_warmup, isDrop },
+      state.sheet.reference,
+      exercise,
+    );
+    if (jump) {
+      state.sheet.pendingConfirm = { ...jump, isDrop };
+      return render();
+    }
+  }
+  state.sheet.pendingConfirm = null;
 
   await store.addSet({
     workout_id: state.workout.id,
@@ -561,6 +594,7 @@ async function logCurrent({ isDrop }) {
   await saveNoteNow();
   state.sets = await store.setsForWorkout(state.workout.id);
   state.sheet.last = await store.lastSetFor(exerciseId);
+  state.sheet.reference = await store.lastWorkSetFor(exerciseId);
   state.sheet.draft.is_warmup = 0;
   state.sheet.draft.failed = 0;
 
@@ -587,6 +621,12 @@ async function onClick(event) {
   if (!trigger) return;
 
   const { act } = trigger.dataset;
+
+  // Any action that can change the draft invalidates a pending confirmation,
+  // so the panel can never end up confirming a number that's been edited.
+  if (state.sheet?.type === 'log' && act !== 'confirm-log' && act !== 'cancel-log') {
+    state.sheet.pendingConfirm = null;
+  }
 
   switch (act) {
     case 'start':
@@ -676,6 +716,13 @@ async function onClick(event) {
 
     case 'log-set':
       return logCurrent({ isDrop: false });
+
+    case 'confirm-log':
+      return logCurrent({ isDrop: state.sheet.pendingConfirm?.isDrop ?? false, confirmed: true });
+
+    case 'cancel-log':
+      state.sheet.pendingConfirm = null;
+      return render();
 
     case 'drop-set':
       return logCurrent({ isDrop: true });

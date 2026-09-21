@@ -21,6 +21,9 @@ assume you always train in the same place. This one doesn't.
   (system sound + haptic) is the closest substitute and is opt-in.
 - **Local-first.** Every set is written to IndexedDB the instant you tap. Sync to
   Supabase happens in the background. The app works with no signal and no server.
+- **Catches typos.** A working weight more than 5% above your last working set
+  asks for confirmation before it reaches the log. Warmups, drop sets and failed
+  sets are excluded from the baseline, so it only fires on real outliers.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
   no keyboard unless you want one.
 
@@ -48,6 +51,7 @@ silent data bug would cost a logged workout belongs in it.
 1. ✅ App shell, manifest, service worker, deploy
 2. ✅ Exercises + set logging with RPE (local only)
 3. ✅ Rest timer, drop sets, failed sets, per-exercise notes, manual locations
+   plus a confirmation step on outlier weights
 4. GPS auto-detect for locations
 5. Supabase schema, auth, sync queue
 6. Bodyweight + weigh-in nudge

@@ -303,6 +303,24 @@ export async function lastSetFor(exerciseId) {
   return live[0];
 }
 
+/* The last set that counts as a working set, used as the baseline for the
+   "is that weight a typo?" check. Warmups, drop sets and failures are all
+   excluded: comparing a work set against a warmup would prompt every time you
+   finish warming up, and a failed 245 should not make 250 look reasonable.
+   Sets from the current session are included, so a within-session 185 -> 195
+   compares against the 185 you just did. */
+export async function lastWorkSetFor(exerciseId) {
+  const rows = await db.getAllByIndex('sets', 'by_exercise', exerciseId);
+  const working = rows.filter((s) =>
+    db.isLive(s) && !s.is_warmup && !s.is_dropset && !s.failed);
+  if (!working.length) return null;
+  working.sort((a, b) =>
+    b.created_at.localeCompare(a.created_at) ||
+    (b.set_index - a.set_index) ||
+    b.id.localeCompare(a.id));
+  return working[0];
+}
+
 /* Exercise ids ordered by how recently you've used them, for the picker. */
 export async function exerciseUsage() {
   const rows = await db.getAll('sets');

@@ -4,6 +4,7 @@
 
 import 'fake-indexeddb/auto';
 import * as store from '../js/store.js';
+import { shouldConfirmWeight } from '../js/rules.js';
 
 let passed = 0;
 let failed = 0;
@@ -201,6 +202,64 @@ await store.setWorkoutPlace(atFenton, garage.id);
 const afterMove = await store.lastNoteFor(plank.id, { placeId: garage.id });
 check('a note follows its session when the location changes',
   afterMove?.note.body === 'Fenton specific' && afterMove.sameLocation === true);
+
+
+// ---------- weight sanity check ----------
+
+const lifting = { tracks: 'weight_reps' };
+const bodyweight = { tracks: 'bodyweight_reps' };
+const timed = { tracks: 'time' };
+const ref = (weight) => ({ weight });
+
+const jump = (weight, reference, exercise = lifting, extra = {}) =>
+  shouldConfirmWeight({ weight, isWarmup: 0, isDrop: false, ...extra }, reference, exercise);
+
+check('a 5.4% jump asks for confirmation', jump(195, ref(185)) !== null);
+check('and reports the percentage', jump(195, ref(185)).percent === 5);
+check('and carries both numbers', 
+  jump(195, ref(185)).weight === 195 && jump(195, ref(185)).previous === 185);
+check('a 2.7% jump passes silently', jump(190, ref(185)) === null);
+check('exactly 5% passes', jump(105, ref(100)) === null);
+check('just over 5% stops you', jump(106, ref(100)) !== null);
+check('a fat-fingered extra digit is caught', jump(1850, ref(185)).percent === 900);
+check('same weight passes', jump(185, ref(185)) === null);
+check('going down passes', jump(135, ref(185)) === null);
+
+check('warmups are never checked', jump(315, ref(135), lifting, { isWarmup: 1 }) === null);
+check('drop sets are never checked', jump(315, ref(135), lifting, { isDrop: true }) === null);
+check('time-tracked exercises are never checked', jump(315, ref(135), timed) === null);
+check('no history means no check', jump(315, null) === null);
+check('a zero baseline is skipped rather than dividing', jump(25, ref(0), bodyweight) === null);
+check('a null baseline weight is skipped', jump(25, ref(null), bodyweight) === null);
+check('added bodyweight still checks against a real baseline',
+  jump(45, ref(25), bodyweight) !== null);
+
+// The baseline query must ignore warmups, drops and failures.
+const refWorkout = await store.startWorkout();
+const squat = seeded.find((e) => e.name === 'Back Squat');
+
+await store.addSet({ workout_id: refWorkout.id, exercise_id: squat.id, weight: 135, reps: 5, is_warmup: 1 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: refWorkout.id, exercise_id: squat.id, weight: 225, reps: 5 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: refWorkout.id, exercise_id: squat.id, weight: 185, reps: 8, is_dropset: 1 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: refWorkout.id, exercise_id: squat.id, weight: 275, reps: 1, failed: 1 });
+
+const baseline = await store.lastWorkSetFor(squat.id);
+check('baseline skips warmup, drop and failed sets', baseline.weight === 225,
+  `got ${baseline?.weight}`);
+check('so the next work set compares against the real one',
+  jump(230, baseline) === null);
+check('but a genuine outlier still stops you', jump(315, baseline) !== null);
+
+// A warmup-only history gives no baseline at all.
+const freshWorkout = await store.startWorkout();
+const curl = seeded.find((e) => e.name === 'Preacher Curl');
+await store.addSet({ workout_id: refWorkout.id, exercise_id: curl.id, weight: 30, reps: 12, is_warmup: 1 });
+check('warmups alone leave no baseline', (await store.lastWorkSetFor(curl.id)) === null);
+
+await store.discardWorkout(await store.getActiveWorkout());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

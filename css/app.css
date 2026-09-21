@@ -552,6 +552,28 @@ button { -webkit-tap-highlight-color: transparent; }
 .btn-drop { flex: none; min-height: 58px; padding: 0 18px; font-size: 16px; }
 .btn-drop[disabled] { opacity: 0.4; }
 
+/* ---------- weight sanity check ---------- */
+
+.btn-danger { background: var(--danger); color: #fff; }
+
+.weight-confirm {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+}
+.weight-confirm-lead {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.weight-confirm-lead strong {
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+.weight-confirm .confirm-actions .btn { flex: 1; min-height: 52px; }
+
 /* ---------- drop sets, fails, places ---------- */
 
 .set-row.is-drop { padding-left: 16px; }
