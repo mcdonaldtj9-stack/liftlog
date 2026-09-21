@@ -29,13 +29,39 @@ assume you always train in the same place. This one doesn't.
   it. Beeps on finish. iOS has no vibration API for web apps, so a notification
   (system sound + haptic) is the closest substitute and is opt-in.
 - **Local-first.** Every set is written to IndexedDB the instant you tap. Sync to
-  Supabase happens in the background. The app works with no signal and no server.
+  Supabase runs in the background and never blocks a tap. The app works fully
+  with no signal, no server, and no account. A pull never overwrites work that
+  hasn't been uploaded yet — what you did on the phone wins, and the next push
+  settles it.
 - **Catches typos.** Before a set is written, an outlier weight (over 5% *and*
   at least 10 lbs above your last working set) or an implausible rep count asks
   you to confirm the actual numbers. Warmups, drop sets and failed attempts are
   excluded from the baseline so it only fires on genuine outliers.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
   no keyboard unless you want one.
+
+## Setting up sync
+
+Four steps in the Supabase dashboard, then two values into the app. No
+credentials live in this repo.
+
+1. **SQL Editor** → paste `supabase/schema.sql` → **Run**. Creates the tables,
+   the server-side timestamps sync pages through, and row level security.
+2. **Authentication → Providers → Email** → turn OFF *Allow new users to sign
+   up*. The anon key is public, so this is half the security model.
+3. **Authentication → Users → Add user** → your email and a password, with
+   auto-confirm on. This is the only account that will ever exist.
+4. **Project Settings → API** → copy the **Project URL** and the **anon public**
+   key into the app under Settings → Sync, then sign in with the user from
+   step 3.
+
+The anon key is designed to be public in a browser app. What actually protects
+the data is RLS: every row carries a `user_id` and every policy requires it to
+match the signed-in user. With signups disabled, nobody else can obtain a user.
+
+Sign-in is email and password rather than a magic link on purpose: a magic link
+opens in Safari, and an installed iOS home-screen app has separate storage, so
+the session would land somewhere the app can't see it.
 
 ## Stack
 
@@ -65,9 +91,10 @@ silent data bug would cost a logged workout belongs in it.
 4. ✅ Routines with per-exercise targets, optionally per location,
    plus 1RM-based weight suggestions
 5. GPS auto-detect for locations
-6. Supabase schema, auth, sync queue
+6. ✅ Supabase schema, auth, background sync
 7. Bodyweight + weigh-in nudge
 8. History, PRs / estimated 1RM, volume charts
+9. Export to a file (the other half of "not only on the phone")
 
 ## Notes
 

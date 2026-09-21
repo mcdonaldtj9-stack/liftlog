@@ -552,6 +552,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .btn-drop { flex: none; min-height: 58px; padding: 0 18px; font-size: 16px; }
 .btn-drop[disabled] { opacity: 0.4; }
 
+/* ---------- sync panel ---------- */
+
+#syncSetup .search,
+#syncLogin .search { margin-bottom: 10px; }
+#syncSetup .btn,
+#syncLogin .btn,
+#syncActions .btn { margin-top: 4px; }
+.hint.warn { color: var(--danger); }
+
 /* ---------- routines ---------- */
 
 .routine-list { list-style: none; margin: 0 0 6px; padding: 0; }

@@ -2,8 +2,10 @@
 
 import * as train from './train.js';
 import * as rest from './rest.js';
+import * as supa from './supa.js';
+import * as sync from './sync.js';
 
-const BUILD = '11';
+const BUILD = '12';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -134,6 +136,138 @@ train.mount(document.getElementById('view-train')).catch((err) => {
     `<div class="empty"><h2>Couldn't open the database</h2>
      <p>${String(err && err.message ? err.message : err)}</p></div>`;
 });
+
+/* ---------- sync ---------- */
+
+const el = (id) => document.getElementById(id);
+
+function setMessage(text, tone = '') {
+  const node = el('syncMessage');
+  if (!node) return;
+  node.textContent = text || '';
+  node.className = `hint ${tone}`;
+}
+
+function relativeTime(iso) {
+  if (!iso) return 'Never';
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+let forcingSetup = false;
+
+async function refreshSyncUI() {
+  const state = await sync.status();
+
+  const showSetup = forcingSetup || !state.configured;
+  el('syncSetup').hidden = !showSetup;
+  el('syncLogin').hidden = showSetup || state.signedIn;
+  el('syncActions').hidden = showSetup || !state.signedIn;
+
+  el('syncState').textContent = !state.configured
+    ? 'Not set up'
+    : state.signedIn ? 'On ✓' : 'Signed out';
+  el('syncAccount').textContent = state.email || '—';
+  el('syncLast').textContent = relativeTime(state.lastSyncAt);
+  el('syncPending').textContent = state.pending === 0 ? 'Nothing' : String(state.pending);
+
+  if (state.lastError && state.signedIn) setMessage(state.lastError, 'warn');
+  return state;
+}
+
+/* Sync, then repaint the Train tab if anything came down. Never runs while a
+   sheet is open; the next trigger will catch it. */
+async function runSync({ quiet = false } = {}) {
+  if (document.body.classList.contains('sheet-open')) return null;
+
+  if (!quiet) setMessage('Syncing…');
+  const result = await sync.syncNow();
+
+  if (result.ok) {
+    if (result.pulled > 0) await train.reload();
+    if (!quiet) {
+      setMessage(result.pushed || result.pulled
+        ? `Sent ${result.pushed}, received ${result.pulled}.`
+        : 'Already up to date.');
+    }
+  } else if (!quiet) {
+    const words = {
+      offline: 'No connection — your work is saved and will go up later.',
+      'signed-out': result.message || 'Signed out. Sign in again to resume syncing.',
+      unconfigured: 'Add your Supabase details first.',
+    };
+    setMessage(words[result.reason] || result.message || 'Sync failed.', 'warn');
+  }
+
+  await refreshSyncUI();
+  return result;
+}
+
+el('saveSupa')?.addEventListener('click', async () => {
+  const url = el('supaUrl').value.trim();
+  const anonKey = el('supaKey').value.trim();
+  if (!url || !anonKey) return setMessage('Both the URL and the key are needed.', 'warn');
+
+  await supa.setConfig({ url, anonKey });
+  forcingSetup = false;
+  setMessage('Saved. Now sign in with the user you created in Supabase.');
+  await refreshSyncUI();
+});
+
+el('editSupa')?.addEventListener('click', async () => {
+  forcingSetup = true;
+  const { url, anonKey } = await supa.getConfig();
+  el('supaUrl').value = url;
+  el('supaKey').value = anonKey;
+  await refreshSyncUI();
+});
+
+el('doSignIn')?.addEventListener('click', async () => {
+  const email = el('supaEmail').value.trim();
+  const password = el('supaPassword').value;
+  if (!email || !password) return setMessage('Email and password, please.', 'warn');
+
+  setMessage('Signing in…');
+  try {
+    await supa.signIn(email, password);
+    el('supaPassword').value = '';
+    // A fresh sign-in may be a fresh install: forget the watermarks so the
+    // first sync pulls the whole history rather than only what changed since.
+    await sync.resetWatermarks();
+    await refreshSyncUI();
+    await runSync();
+  } catch (error) {
+    setMessage(error.message || 'Sign in failed.', 'warn');
+    await refreshSyncUI();
+  }
+});
+
+el('doSync')?.addEventListener('click', () => runSync());
+
+el('doSignOut')?.addEventListener('click', async () => {
+  await supa.signOut();
+  setMessage('Signed out. Your data stays on this phone.');
+  await refreshSyncUI();
+});
+
+refreshSyncUI();
+
+/* Triggers: opening the app, coming back to it, and regaining signal. A debounce
+   stops a quick tab-out-and-back from firing several at once. */
+let syncTimer = null;
+function scheduleSync(delay = 400) {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => runSync({ quiet: true }), delay);
+}
+
+scheduleSync(1200);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') scheduleSync(800);
+});
+window.addEventListener('online', () => scheduleSync(500));
 
 /* ---------- service worker ---------- */
 

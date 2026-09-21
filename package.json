@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Workout and bodyweight tracker PWA",
   "scripts": {
-    "test": "node test/store.test.mjs && node test/migration.test.mjs && node test/migration-v2.test.mjs",
-    "check": "node --check js/app.js && node --check js/db.js && node --check js/store.js && node --check js/seed.js && node --check js/train.js && node --check js/rest.js && node --check js/rules.js && node --check sw.js",
+    "test": "node test/store.test.mjs && node test/sync.test.mjs && node test/migration.test.mjs && node test/migration-v2.test.mjs",
+    "check": "node --check js/app.js && node --check js/db.js && node --check js/store.js && node --check js/seed.js && node --check js/train.js && node --check js/rest.js && node --check js/rules.js && node --check js/supa.js && node --check js/sync.js && node --check sw.js",
     "serve": "python -m http.server 8732 --bind 127.0.0.1"
   },
   "devDependencies": {

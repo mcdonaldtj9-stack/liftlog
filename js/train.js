@@ -1177,6 +1177,16 @@ async function onClick(event) {
   }
 }
 
+/* Re-read everything and repaint. Called after a sync pulls new data, and a
+   no-op while a sheet is open — repainting under a half-entered set is exactly
+   the kind of thing this app is supposed to not do. */
+export async function reload() {
+  if (!root || state.sheet) return false;
+  await refresh();
+  render();
+  return true;
+}
+
 /* ---------- mount ---------- */
 
 export async function mount(element) {

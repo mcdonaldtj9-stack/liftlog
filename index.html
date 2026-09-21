@@ -65,6 +65,41 @@
          gets you the system alert sound and haptic, which is the closest thing
          to a vibration iOS gives a web app.</p>
       <button class="btn" id="enableNotify">Allow rest alerts</button>
+
+      <h3 class="section-label">Sync</h3>
+      <dl class="kv">
+        <dt>Status</dt><dd id="syncState">—</dd>
+        <dt>Account</dt><dd id="syncAccount">—</dd>
+        <dt>Last synced</dt><dd id="syncLast">—</dd>
+        <dt>Waiting to upload</dt><dd id="syncPending">—</dd>
+      </dl>
+
+      <div id="syncSetup" hidden>
+        <p class="hint">From your Supabase project: Settings → API. The anon key
+           is safe to store here — row level security is what protects the data.</p>
+        <input class="search" id="supaUrl" type="url" autocomplete="off"
+               autocapitalize="none" spellcheck="false"
+               placeholder="https://yourproject.supabase.co">
+        <input class="search" id="supaKey" type="text" autocomplete="off"
+               autocapitalize="none" spellcheck="false" placeholder="anon public key">
+        <button class="btn btn-block" id="saveSupa">Save connection</button>
+      </div>
+
+      <div id="syncLogin" hidden>
+        <input class="search" id="supaEmail" type="email" autocomplete="username"
+               autocapitalize="none" spellcheck="false" placeholder="Email">
+        <input class="search" id="supaPassword" type="password"
+               autocomplete="current-password" placeholder="Password">
+        <button class="btn btn-block" id="doSignIn">Sign in</button>
+        <button class="btn-link" id="editSupa">Change connection</button>
+      </div>
+
+      <div id="syncActions" hidden>
+        <button class="btn btn-block" id="doSync">Sync now</button>
+        <button class="btn-link danger" id="doSignOut">Sign out</button>
+      </div>
+
+      <p class="hint" id="syncMessage"></p>
       <p class="hint">This panel exists so we can confirm an update actually reached your phone. The build number changes every time I push.</p>
       <button class="btn" id="forceUpdate">Check for update</button>
     </div>
