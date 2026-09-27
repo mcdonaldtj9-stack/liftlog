@@ -4,6 +4,7 @@
 
 import * as store from './store.js';
 import * as rest from './rest.js';
+import * as push from './push.js';
 import {
   checkSet, suggestWeight, DEFAULT_TARGET_RPE, suggestProgression, detectPR,
 } from './rules.js';
@@ -28,6 +29,7 @@ const state = {
   confirmFinish: false,
   recent: [],
   templates: [],
+  archived: [],          // routines put away for now
   template: null,        // the routine this session was started from
   templateDraft: null,   // survives the picker opening on top of the editor
   lastPlaceId: null,
@@ -82,6 +84,13 @@ function describeSet(set, exercise) {
   return `${formatWeight(set.weight ?? 0)} × ${set.reps ?? 0}${grade}`;
 }
 
+/* The number beside each set. Working sets count 1, 2, 3; a warmup is a
+   "W" and stays out of the count; a drop hangs off the set above it. */
+function setLabels(sets) {
+  let n = 0;
+  return sets.map((set) => (set.is_dropset ? '↳' : set.is_warmup ? 'W' : String(++n)));
+}
+
 /* What the confirm button restates — the whole set, so the second look is at
    the actual numbers rather than at the word "OK". */
 function describeDraft(draft, exercise) {
@@ -116,12 +125,13 @@ function formatDate(iso) {
 async function refresh() {
   state.workout = await store.getActiveWorkout();
   state.exercises = await store.listExercises();
-  state.places = await store.listPlaces();
+  state.places = await store.listGyms();
   state.usage = await store.exerciseUsage();
   state.sets = state.workout ? await store.setsForWorkout(state.workout.id) : [];
   state.recent = state.workout ? [] : await store.recentWorkouts(10);
   state.rest = await rest.load();
   state.templates = await store.listTemplates();
+  state.archived = await store.listArchivedTemplates();
   const weighIns = state.workout ? [] : await store.listWeights();
   state.weighInDays = weighIns.length
     ? Math.round((Date.now() - new Date(weighIns[weighIns.length - 1].weighed_at).getTime()) / 86400000)
@@ -206,6 +216,17 @@ function renderIdle() {
     ${state.recent.length ? `
       <h3 class="section-label">Recent sessions</h3>
       <ul class="card-list">${recent}</ul>` : ''}
+    ${state.archived.length ? `
+      <h3 class="section-label">Archived routines</h3>
+      <ul class="routine-list">${state.archived.map((template) => `
+        <li class="routine is-archived">
+          <div class="routine-go">
+            <span class="routine-name">${escapeHTML(template.name)}</span>
+            <span class="routine-where">${placeName(template.place_id)
+              ? escapeHTML(placeName(template.place_id)) : 'any location'}</span>
+          </div>
+          <button class="routine-edit" data-act="restore-template" data-template="${template.id}">Restore</button>
+        </li>`).join('')}</ul>` : ''}
   `;
 }
 
@@ -225,13 +246,13 @@ function renderActive() {
   const blocks = order.map((exerciseId) => {
     const exercise = exerciseById(exerciseId);
     const sets = byExercise.get(exerciseId) || [];
-    const rows = sets.map((set) => `
+    const labels = setLabels(sets);
+    const rows = sets.map((set, i) => `
       <li class="set-row${set.is_dropset ? ' is-drop' : ''}">
-        <span class="set-n">${set.is_dropset ? '↳' : set.set_index}</span>
+        <span class="set-n${set.is_warmup ? ' is-warmup' : ''}">${labels[i]}</span>
         <span class="set-desc">${escapeHTML(describeSet(set, exercise))}</span>
         ${set.is_pr ? '<span class="tag tag-pr">PR</span>' : ''}
         ${set.failed ? '<span class="tag tag-fail">fail</span>' : ''}
-        ${set.is_warmup ? '<span class="tag">warmup</span>' : ''}
       </li>`).join('');
 
     return `
@@ -437,6 +458,7 @@ function renderTemplateSheet() {
             <button class="btn btn-danger" data-act="tpl-delete-confirm">Delete</button>
           </div>
         </div>` : `
+        <button class="btn-link" data-act="tpl-archive">Archive routine</button>
         <button class="btn-link danger" data-act="tpl-delete">Delete routine</button>`) : ''}
     </div>`;
 }
@@ -523,11 +545,22 @@ function renderRestBar(exercise) {
       </div>${warmupsDone}${offer}`;
   }
 
+  // While a rest runs the presets stay live: tapping one restarts the rest
+  // at that length from now, so a rest can be changed without waiting it out.
   return `
     <div class="rest-bar ${left === 0 ? 'is-done' : 'is-running'}">
       <span class="rest-clock" id="restClock">${rest.format(left)}</span>
-      <span class="rest-label">${left === 0 ? 'Rest is up' : 'resting'}</span>
+      ${left === 0 ? '<span class="rest-label">Rest is up</span>' : ''}
+      <div class="rest-extend">
+        ${rest.EXTENSIONS.map((s) => `
+          <button class="chip" data-act="rest-extend" data-secs="${s}">+${s}s</button>`).join('')}
+      </div>
       <button class="btn-link" data-act="rest-stop">${left === 0 ? 'Clear' : 'Skip'}</button>
+    </div>
+    <div class="rest-restart">
+      <span class="rest-label">Restart</span>
+      ${rest.PRESETS.map((s) => `
+        <button class="chip" data-act="rest-start" data-secs="${s}">${rest.format(s)}</button>`).join('')}
     </div>${warmupsDone}${offer}`;
 }
 
@@ -541,9 +574,10 @@ function renderLogSheet() {
 
   const logged = state.sets.filter((s) => s.exercise_id === exercise.id);
   const editing = state.sheet.editingSetId;
-  const loggedRows = logged.map((set) => `
+  const labels = setLabels(logged);
+  const loggedRows = logged.map((set, i) => `
     <li class="set-row${set.is_dropset ? ' is-drop' : ''}${editing === set.id ? ' is-editing' : ''}">
-      <span class="set-n">${set.is_dropset ? '↳' : set.set_index}</span>
+      <span class="set-n${set.is_warmup ? ' is-warmup' : ''}">${labels[i]}</span>
       <button class="set-desc set-edit" data-act="edit-set" data-set="${set.id}"
               aria-label="Edit this set">${escapeHTML(describeSet(set, exercise))}${
         set.is_pr ? ' <span class="tag tag-pr">PR</span>' : ''}</button>
@@ -1080,6 +1114,16 @@ async function startRest(seconds) {
   state.rest.endsAt = await rest.start(seconds);
   state.rest.duration = seconds;
   state.restDone = false;
+  scheduleRestAlert();
+}
+
+/* The lock-screen alert follows the deadline: every path that moves it goes
+   through here. Fire-and-forget — it must never hold up a tap. */
+function scheduleRestAlert() {
+  const exercise = exerciseById(state.sheet?.exerciseId);
+  push.schedule(state.rest.endsAt, {
+    body: exercise ? `Next set — ${exercise.name}` : 'Next set.',
+  });
 }
 
 async function onClick(event) {
@@ -1343,6 +1387,24 @@ async function onClick(event) {
       return render();
     }
 
+    /* Put a routine away without losing it: it leaves the list and waits
+       at the bottom of the screen until it's wanted again. */
+    case 'tpl-archive': {
+      const template = state.templates.find((t) => t.id === state.templateDraft.id);
+      if (template) await store.archiveTemplate(template);
+      state.templateDraft = null;
+      state.sheet = null;
+      await refresh();
+      return render();
+    }
+
+    case 'restore-template': {
+      const template = state.archived.find((t) => t.id === trigger.dataset.template);
+      if (template) await store.restoreTemplate(template);
+      await refresh();
+      return render();
+    }
+
     case 'unplan': {
       state.workout = await store.removeFromPlan(state.workout, trigger.dataset.ex);
       await refresh();
@@ -1476,6 +1538,13 @@ async function onClick(event) {
       await rest.stop();
       state.rest.endsAt = null;
       state.restDone = false;
+      push.cancel();
+      return render();
+
+    case 'rest-extend':
+      state.rest.endsAt = await rest.extend(state.rest.endsAt, Number(trigger.dataset.secs));
+      state.restDone = false;
+      scheduleRestAlert();
       return render();
 
     case 'del-set': {
@@ -1499,6 +1568,7 @@ async function onClick(event) {
       await store.finishWorkout(state.workout);
       await rest.stop();
       state.rest.endsAt = null;
+      push.cancel();
       state.confirmFinish = false;
       state.sheet = null;
       await refresh();
@@ -1508,6 +1578,7 @@ async function onClick(event) {
       await store.discardWorkout(state.workout);
       await rest.stop();
       state.rest.endsAt = null;
+      push.cancel();
       state.confirmFinish = false;
       state.sheet = null;
       await refresh();
@@ -1621,7 +1692,7 @@ async function capturePlace(placeId) {
   try {
     const fix = await geo.currentFix({ timeout: 20000, maximumAge: 0 });
     await store.setPlaceLocation(place, fix);
-    state.places = await store.listPlaces();
+    state.places = await store.listGyms();
     state.geoStatus = fix.accuracy > geo.ROUGH_CAPTURE_M
       ? { tone: 'warn', text: `Saved ${place.name}, but the fix was rough (±${geo.formatDistance(fix.accuracy)}). It'll still tell your gyms apart; retake near a window for a better one.` }
       : { tone: 'good', text: `Saved ${place.name} (±${geo.formatDistance(fix.accuracy)}).` };

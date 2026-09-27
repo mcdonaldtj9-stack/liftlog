@@ -9,9 +9,10 @@ import * as sync from './sync.js';
 import * as backup from './export.js';
 import * as db from './db.js';
 import * as store from './store.js';
+import * as push from './push.js';
 import { DEFAULT_GOAL, validateGoal, plannedRate } from './goal.js';
 
-const BUILD = '23';
+const BUILD = '24';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -58,6 +59,29 @@ document.addEventListener('focusin', (e) => {
 });
 document.addEventListener('focusout', () => {
   document.body.classList.remove('kb-open');
+});
+
+/* Numeric fields type over what's there. Tapping into "185" and ending up
+   with "1855" is exactly how a wrong weight gets logged, so the whole value
+   is selected on focus and the first keystroke replaces it. iOS then places
+   its own caret on the tap that follows focus, which would undo that, so the
+   selection is reapplied on that tap — and only that one, so a later tap can
+   still position the caret. */
+const TYPE_OVER = 'input.num, input.mini';
+let typeOver = { el: null, at: 0 };
+function selectAll(el) {
+  try {
+    el.select();
+    el.setSelectionRange(0, el.value.length);
+  } catch {}
+}
+document.addEventListener('focusin', (e) => {
+  if (!e.target.matches?.(TYPE_OVER)) return;
+  typeOver = { el: e.target, at: Date.now() };
+  selectAll(e.target);
+});
+document.addEventListener('click', (e) => {
+  if (e.target === typeOver.el && Date.now() - typeOver.at < 600) selectAll(e.target);
 });
 
 /* ---------- diagnostics ---------- */
@@ -135,10 +159,37 @@ function showNotifyState() {
 
 showNotifyState();
 
+/* Lock-screen alerts need three things: permission, an account to schedule
+   them under, and this phone registered with the push service. */
+const PUSH_LABEL = {
+  unsupported: 'Not supported',
+  'no-permission': 'Allow rest alerts first',
+  'signed-out': 'Sign in to sync first',
+  off: 'Not set up',
+  on: 'On ✓',
+};
+
+async function showPushState() {
+  const state = await push.status();
+  setText('pushState', PUSH_LABEL[state] || state);
+  const button = document.getElementById('enablePush');
+  if (button) button.hidden = state !== 'off';
+}
+
+showPushState();
+
 document.getElementById('enableNotify')?.addEventListener('click', async () => {
   await rest.requestNotifications();
   rest.unlockAudio();   // same tap also unlocks audio for the beep
   showNotifyState();
+  await push.enable();  // still inside the tap, which iOS prefers for this
+  showPushState();
+});
+
+document.getElementById('enablePush')?.addEventListener('click', async () => {
+  const ok = await push.enable();
+  await showPushState();
+  if (!ok) setText('pushState', 'Could not register — try again with signal');
 });
 
 /* ---------- boot ---------- */
@@ -279,6 +330,8 @@ el('doSignIn')?.addEventListener('click', async () => {
     await sync.resetWatermarks();
     await refreshSyncUI();
     await runSync();
+    await push.enable();
+    await showPushState();
   } catch (error) {
     setMessage(error.message || 'Sign in failed.', 'warn');
     await refreshSyncUI();
@@ -291,6 +344,7 @@ el('doSignOut')?.addEventListener('click', async () => {
   await supa.signOut();
   setMessage('Signed out. Your data stays on this phone.');
   await refreshSyncUI();
+  await showPushState();
 });
 
 refreshSyncUI();
@@ -528,6 +582,8 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .then((reg) => {
         setText('swState', 'Active ✓');
+        // Push endpoints can change; re-check on every launch once allowed.
+        push.enable().then(showPushState);
         document.getElementById('forceUpdate')?.addEventListener('click', async () => {
           setText('swState', 'Checking…');
           try {

@@ -130,6 +130,8 @@ button { -webkit-tap-highlight-color: transparent; }
   cursor: pointer;
 }
 .btn:active { opacity: 0.75; }
+/* The flex display above would otherwise beat the hidden attribute. */
+.btn[hidden] { display: none; }
 
 /* ---------- tab bar ---------- */
 
@@ -294,6 +296,7 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size: 12px;
   font-weight: 700;
 }
+.set-n.is-warmup { color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .set-desc { flex: 1; font-variant-numeric: tabular-nums; }
 .set-del {
   flex: none;
@@ -502,6 +505,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .rest-bar .btn-link { margin-left: auto; }
 .rest-presets { display: flex; gap: 8px; flex: 1; margin-left: auto; }
 .rest-presets .chip { min-height: 44px; font-size: 14px; }
+.rest-extend { display: flex; gap: 6px; margin-left: auto; }
+.rest-extend .chip { min-height: 40px; padding: 0 10px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.rest-bar .rest-extend + .btn-link { margin-left: 0; }
+/* Under a running rest: change your mind about its length. */
+.rest-restart { display: flex; align-items: center; gap: 8px; margin: -8px 0 16px; }
+.rest-restart .chip { min-height: 36px; padding: 0 10px; font-size: 13px; }
 
 /* ---------- prior note ---------- */
 
@@ -1028,6 +1037,9 @@ div.place-choose { cursor: default; }
 .routine-name { font-size: 17px; font-weight: 650; }
 .routine-where { font-size: 13px; color: var(--muted); }
 .routine-where.here { color: var(--accent); }
+.routine.is-archived { opacity: 0.7; }
+.routine.is-archived .routine-go { cursor: default; }
+.routine.is-archived .routine-go:active { background: none; }
 .routine-edit {
   flex: none;
   padding: 0 14px;

@@ -28,7 +28,24 @@ assume you always train in the same place. This one doesn't.
   and never overrides a location you chose or a routine tied to a gym — it offers.
 - **Rest timer** storing an absolute deadline, so locking the phone doesn't stop
   it. Beeps on finish. iOS has no vibration API for web apps, so a notification
-  (system sound + haptic) is the closest substitute and is opt-in.
+  (system sound + haptic) is the closest substitute and is opt-in. The rest can
+  be extended (+15s, +30s) or restarted at another length while it runs.
+- **Rest alerts on the lock screen.** iOS suspends a web app's JavaScript when
+  the screen locks, so the local timer can't ring there. With sync on, the app
+  schedules the alert on the server instead: a cron job hands it to an edge
+  function at the right second, which sends a Web Push the phone shows on the
+  lock screen with the system sound. Skipping or extending the rest moves it.
+  No web app can show a live countdown on the iOS lock screen; the arriving
+  notification is what's possible. Server side is in `supabase/push.sql` and
+  `supabase/functions/send-push/`.
+- **Warmups are marked W**, and working sets count 1, 2, 3 on their own.
+- **Numbers type over.** Tapping into a weight or rep field selects the whole
+  value, so the first keystroke replaces it instead of appending to it.
+- **Routines can be archived.** A finished programme leaves the list and waits
+  under "Archived routines" until you restore it.
+- **Scales are places too.** Weigh-ins are logged against the home scales
+  (Fenton, Effingham), which are kept apart from the gyms: the Weight tab
+  shows only the scales, the Train tab only the gyms.
 - **Local-first.** Every set is written to IndexedDB the instant you tap. Sync to
   Supabase runs in the background and never blocks a tap. The app works fully
   with no signal, no server, and no account. A pull never overwrites work that
@@ -73,6 +90,10 @@ credentials live in this repo.
    up*. The anon key is public, so this is half the security model.
 3. **Authentication → Users → Add user** → your email and a password, with
    auto-confirm on. This is the only account that will ever exist.
+   (Optional, for lock-screen rest alerts: run `supabase/push.sql` too, deploy
+   `supabase/functions/send-push`, and put four secrets in Vault — see the
+   header of `push.sql`. A VAPID pair comes from
+   `node -e "crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>console.log(JSON.stringify({publicKey:await crypto.subtle.exportKey('jwk',k.publicKey),privateKey:await crypto.subtle.exportKey('jwk',k.privateKey)})))"`.)
 4. **Project Settings → API Keys** → copy the **publishable** key (older
    projects call it the **anon** key) and the project URL into the app under
    Settings → Sync, then sign in with the user from step 3. Never the secret
@@ -120,6 +141,8 @@ silent data bug would cost a logged workout belongs in it.
 9. ✅ Backup, restore and spreadsheet export
 10. ✅ Exercise editing, set correction, progression prompts, PRs, rest per exercise
 11. ✅ Weight goal: goal line, tolerance band, pace and projection, synced settings
+12. ✅ Lock-screen rest alerts by Web Push; adjustable rests; W for warmups;
+    type-over numbers; archived routines; home scales for weigh-ins
 
 ## Notes
 

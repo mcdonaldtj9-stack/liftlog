@@ -18,6 +18,8 @@ import * as db from './db.js';
 
 export const PRESETS = [60, 90, 120, 180];
 export const DEFAULT_REST = 120;
+/* Quick additions for when the last set took more out of you than planned. */
+export const EXTENSIONS = [15, 30];
 
 let audioCtx = null;
 
@@ -115,6 +117,15 @@ export async function start(seconds) {
 
 export async function stop() {
   await db.setMeta('rest_ends_at', null);
+}
+
+/* Push the deadline out. Works whether the rest is still running or already
+   up: from "up", the extra time starts now rather than from a moment that
+   has passed. */
+export async function extend(endsAt, seconds) {
+  const next = Math.max(endsAt || 0, Date.now()) + seconds * 1000;
+  await db.setMeta('rest_ends_at', next);
+  return next;
 }
 
 export function remaining(endsAt) {

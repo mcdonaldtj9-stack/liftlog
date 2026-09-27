@@ -1,7 +1,7 @@
 /* LiftLog service worker.
    Bump CACHE on every deploy — that's what evicts the old build. */
 
-const CACHE = 'liftlog-v23';
+const CACHE = 'liftlog-v24';
 
 const SHELL = [
   './',
@@ -13,6 +13,7 @@ const SHELL = [
   'js/seed.js',
   'js/train.js',
   'js/rest.js',
+  'js/push.js',
   'js/rules.js',
   'js/supa.js',
   'js/sync.js',
@@ -93,6 +94,32 @@ function networkFirst(request, cacheKey) {
       });
   });
 }
+
+/* ---------- push ----------
+   A rest alert sent by the server (see js/push.js). Something MUST be shown
+   for every push received: Safari drops the subscription after a few silent
+   ones. The tag matches the local notification so the two never stack. */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
+  event.waitUntil(self.registration.showNotification(data.title || 'Rest is up', {
+    body: data.body || 'Next set.',
+    tag: 'liftlog-rest',
+    renotify: true,
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => 'focus' in c);
+      return open ? open.focus() : self.clients.openWindow('./');
+    })
+  );
+});
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
