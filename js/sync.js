@@ -41,6 +41,8 @@ const TABLES = [
     ['id', 'workout_id', 'exercise_id', 'body']],
   ['bodyweights', 'bodyweights',
     ['id', 'weighed_at', 'lbs', 'place_id']],
+  ['settings', 'settings',
+    ['id', 'key', 'value']],
 ];
 
 const COMMON = ['created_at', 'updated_at', 'deleted'];

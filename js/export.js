@@ -18,7 +18,7 @@ export const FORMAT = 1;
 /* Every table a backup carries. `meta` is absent on purpose. */
 export const TABLES = [
   'exercises', 'places', 'templates', 'template_exercises',
-  'workouts', 'sets', 'exercise_notes', 'bodyweights',
+  'workouts', 'sets', 'exercise_notes', 'bodyweights', 'settings',
 ];
 
 /* ---------- building ---------- */

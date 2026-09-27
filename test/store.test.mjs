@@ -4,6 +4,7 @@
 
 import 'fake-indexeddb/auto';
 import * as store from '../js/store.js';
+import * as db from '../js/db.js';
 import {
   shouldConfirmWeight, shouldConfirmReps, checkSet,
   effectiveReps, estimate1RM, bestE1RM, suggestWeight, modeOf,
@@ -642,6 +643,22 @@ check('a deleted exercise leaves the list', !(await store.listExercises()).some(
 check('but its logged sets stay', (await store.setsForWorkout(editSession.id))
   .some((s) => s.exercise_id === gone.id));
 await store.discardWorkout(await store.getActiveWorkout());
+
+// ---------- settings ----------
+
+check('an unsaved setting falls back', (await store.getSetting('weight_goal', 'nope')) === 'nope');
+const savedGoal = await store.saveSetting('weight_goal', { goal_lbs: 165, band_lbs: 2 });
+check('a setting is a synced record with a fixed id', savedGoal.id === store.SETTING_IDS.weight_goal
+  && savedGoal.dirty === 1 && savedGoal.deleted === 0 && savedGoal.key === 'weight_goal');
+check('and reads back', (await store.getSetting('weight_goal')).goal_lbs === 165);
+const resaved = await store.saveSetting('weight_goal', { goal_lbs: 160, band_lbs: 2 });
+check('saving again edits the same record, never a second one',
+  resaved.id === savedGoal.id && resaved.updated_at >= savedGoal.updated_at
+  && (await db.getAll('settings')).length === 1);
+check('with the new value', (await store.getSetting('weight_goal')).goal_lbs === 160);
+let unknownRejected = false;
+try { await store.saveSetting('favourite_colour', 'blue'); } catch { unknownRejected = true; }
+check('an unknown setting key is refused', unknownRejected);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

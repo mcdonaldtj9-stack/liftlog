@@ -153,6 +153,19 @@ create table if not exists public.bodyweights (
   server_updated_at timestamptz not null default now()
 );
 
+-- One row per setting key, with the value as JSON. The first setting is the
+-- bodyweight goal. Shaped like every other table so sync needs no special case.
+create table if not exists public.settings (
+  id                uuid primary key,
+  user_id           uuid not null default auth.uid() references auth.users on delete cascade,
+  key               text not null,
+  value             jsonb,
+  created_at        text not null,
+  updated_at        text not null,
+  deleted           smallint not null default 0,
+  server_updated_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------- triggers
 
 do $$
@@ -161,7 +174,7 @@ declare
 begin
   foreach t in array array[
     'exercises', 'places', 'templates', 'template_exercises',
-    'workouts', 'sets', 'exercise_notes', 'bodyweights'
+    'workouts', 'sets', 'exercise_notes', 'bodyweights', 'settings'
   ]
   loop
     execute format(
@@ -183,6 +196,7 @@ create index if not exists workouts_sync_idx           on public.workouts (user_
 create index if not exists sets_sync_idx               on public.sets (user_id, server_updated_at);
 create index if not exists exercise_notes_sync_idx     on public.exercise_notes (user_id, server_updated_at);
 create index if not exists bodyweights_sync_idx        on public.bodyweights (user_id, server_updated_at);
+create index if not exists settings_sync_idx           on public.settings (user_id, server_updated_at);
 
 -- ---------------------------------------------------------------- row level security
 --
@@ -196,7 +210,7 @@ declare
 begin
   foreach t in array array[
     'exercises', 'places', 'templates', 'template_exercises',
-    'workouts', 'sets', 'exercise_notes', 'bodyweights'
+    'workouts', 'sets', 'exercise_notes', 'bodyweights', 'settings'
   ]
   loop
     execute format('alter table public.%I enable row level security', t);

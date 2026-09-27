@@ -285,6 +285,37 @@ export async function lastScaleId() {
   return value === 'other' ? null : value;
 }
 
+/* ---------- settings ----------
+   User preferences that should follow you to a new phone, so they live in a
+   synced table rather than in `meta`. One record per key, and the id is FIXED
+   per key: two devices saving the same setting then edit the same row, and
+   the usual newest-wins merge settles it instead of leaving duplicates. */
+
+export const SETTING_IDS = {
+  weight_goal: '6c1f7a52-2d3e-4b8a-9f01-000000000001',
+};
+
+async function settingRecord(key) {
+  const id = SETTING_IDS[key];
+  if (!id) throw new Error(`Unknown setting: ${key}`);
+  return db.get('settings', id);
+}
+
+/* The stored value, or `fallback` when it was never saved (or was cleared). */
+export async function getSetting(key, fallback = null) {
+  const record = await settingRecord(key);
+  return db.isLive(record) && record.value != null ? record.value : fallback;
+}
+
+export async function saveSetting(key, value) {
+  const existing = await settingRecord(key);
+  const record = existing
+    ? db.touch(existing, { value, deleted: 0 })
+    : db.newRecord({ id: SETTING_IDS[key], key, value });
+  await db.put('settings', record);
+  return record;
+}
+
 /* ---------- whole-history reads ----------
    The History tab derives everything on render from these; nothing is cached,
    so a sync can never leave a stale total behind. */

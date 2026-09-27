@@ -71,7 +71,7 @@ const db = await import('../js/db.js');
 await store.init();
 
 const handle = await db.open();
-check('database upgraded to the current version', handle.version === 4, `got ${handle.version}`);
+check('database upgraded to the current version', handle.version === 5, `got ${handle.version}`);
 check('every later store was created',
   ['places', 'exercise_notes', 'templates', 'template_exercises', 'bodyweights']
     .every((name) => handle.objectStoreNames.contains(name)));

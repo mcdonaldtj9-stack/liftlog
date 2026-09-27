@@ -6,6 +6,10 @@
 
 import * as store from './store.js';
 import { analyse, trendAt } from './trend.js';
+import {
+  goalStatus, goalPath, goalLineAt, localDate, isValidGoal,
+  DEFAULT_GOAL, STALL_RATE, FAST_RATE, MIN_RATE_DAYS,
+} from './goal.js';
 import { DAY, escapeHTML, dayStart, shortDate, longDate, niceStep } from './chart.js';
 
 /* Categorical slots, dark steps, validated against the chart surface #171c24
@@ -14,6 +18,9 @@ import { DAY, escapeHTML, dayStart, shortDate, longDate, niceStep } from './char
 const SCALE_COLORS = ['#3987e5', '#d95926', '#199e70'];
 const FOLDED_COLOR = '#898781';
 const TREND_COLOR = '#e8edf4';
+/* The goal line: a fourth hue, validated against the three scale colours on
+   the chart surface. Dashed as well, so it never depends on colour alone. */
+const GOAL_COLOR = '#8b6ff0';
 
 /* A reading this far from the last one on the same scale gets a second look.
    Scales are compared only to themselves: two scales legitimately disagree. */
@@ -25,6 +32,7 @@ const RANGES = [
   { key: '30', label: '30 days', days: 30 },
   { key: '90', label: '90 days', days: 90 },
   { key: 'all', label: 'All', days: null },
+  { key: 'goal', label: 'Goal', days: null },   // start date to goal date
 ];
 
 let root = null;
@@ -38,11 +46,17 @@ const state = {
   pendingConfirm: null,
   range: '90',
   inspect: null,        // day timestamp under the crosshair
+  goal: DEFAULT_GOAL,   // replaced by the saved setting once loaded
 };
 
 /* ---------- helpers ---------- */
 
 const fmt = (n) => (n == null ? '—' : Number(n).toFixed(1));
+const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(1);
+
+function fullDate(t) {
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 const scaleKey = (placeId) => placeId || 'other';
 
@@ -103,7 +117,10 @@ function asTrendReadings() {
 async function refresh() {
   state.readings = await store.listWeights();
   state.places = await store.listPlaces();
+  state.goal = await store.getSetting('weight_goal', DEFAULT_GOAL);
 }
+
+const goalOn = () => isValidGoal(state.goal);
 
 async function prefillFromScale() {
   const last = await store.lastWeightOn(state.scaleId);
@@ -175,6 +192,78 @@ function renderHero(analysis) {
     </section>`;
 }
 
+/* Where you stand against the plan. Every figure comes off the trend line,
+   never a raw reading, and is taken at the trend's last point: a weigh-in from
+   three days ago is compared with the line three days ago. */
+function renderGoal(analysis) {
+  if (!goalOn()) return '';
+  const goal = state.goal;
+  const s = goalStatus(goal, analysis.trend);
+
+  const badges = [];
+  if (s.position === 'on') badges.push(['is-on', 'On track']);
+  if (s.position === 'above') badges.push(['is-behind', `Behind by ${fmt(s.diff)}`]);
+  if (s.position === 'below') badges.push(['is-ahead', `Ahead by ${fmt(-s.diff)}`]);
+  if (s.pace === 'stalled') badges.push(['is-behind', 'Stalled']);
+  if (s.pace === 'fast') badges.push(['is-fast', 'Too fast']);
+  const badgeHTML = badges.map(([cls, text]) => `<span class="wt-badge ${cls}">${escapeHTML(text)}</span>`).join('');
+
+  const rateText = !s.rate ? '—' : `${signed(s.rate.rate)}<span> /wk</span>`;
+  const rateLabel = !s.rate ? 'Rate'
+    : s.rate.full ? `Last ${s.rate.days} days` : `Last ${s.rate.days} day${s.rate.days === 1 ? '' : 's'} so far`;
+
+  let outlook;
+  if (s.current == null) {
+    outlook = 'Log a weigh-in to see where you stand.';
+  } else if (!s.rate) {
+    outlook = 'One more weigh-in and the rate of loss shows here.';
+  } else if (!s.rate.full && s.projection.kind !== 'reached') {
+    // A date extrapolated from two days of trend would swing wildly.
+    outlook = `A projected date shows once the trend covers ${MIN_RATE_DAYS} days (${s.rate.days} so far).`;
+  } else if (s.projection.kind === 'reached') {
+    outlook = `The trend is at or under ${fmt(goal.goal_lbs)}. Goal reached — now hold it.`;
+  } else if (s.projection.kind === 'none') {
+    outlook = s.rate.rate >= 0
+      ? 'The trend isn\'t falling right now, so there\'s no date to project.'
+      : 'At this rate the goal is more than two years out.';
+  } else {
+    const vs = s.projection.vsGoalDays;
+    const weeks = Math.round(Math.abs(vs) / 7);
+    const span = weeks < 1 ? `${Math.abs(vs)} days` : `${weeks} week${weeks === 1 ? '' : 's'}`;
+    const timing = Math.abs(vs) <= 3 ? 'right on the goal date'
+      : `${span} ${vs > 0 ? 'after' : 'before'} the goal date`;
+    outlook = `At this rate you'd reach ${fmt(goal.goal_lbs)} around <strong>${escapeHTML(fullDate(s.projection.t))}</strong>, ${timing}.`;
+  }
+
+  const notes = [];
+  if (s.pace === 'stalled') notes.push(`Under ${STALL_RATE} lb a week for two weeks running.`);
+  if (s.pace === 'fast') notes.push(`Over ${FAST_RATE} lb a week — some of that is likely water or muscle, not fat.`);
+  if (s.current != null && dayStart(s.asOf) !== dayStart(Date.now())) {
+    notes.push(`As of ${longDate(s.asOf)}, your last weigh-in.`);
+  }
+  if (!s.started) notes.push(`The plan starts ${fullDate(localDate(goal.start_date))}.`);
+
+  return `
+    <section class="wt-goal">
+      <div class="wt-goal-head">
+        <p class="wt-hero-label">Goal · ${fmt(goal.goal_lbs)} lbs by ${escapeHTML(fullDate(localDate(goal.goal_date)))}</p>
+        ${badgeHTML ? `<div class="wt-badges">${badgeHTML}</div>` : ''}
+      </div>
+      <dl class="wt-goal-grid">
+        <div><dt>Trend now</dt><dd>${fmt(s.current)}</dd></div>
+        <div><dt>Plan says</dt><dd>${fmt(s.expected)}</dd></div>
+        <div><dt>Difference</dt><dd>${s.diff == null ? '—' : signed(s.diff)}</dd></div>
+        <div><dt>${escapeHTML(rateLabel)}</dt><dd>${rateText}</dd></div>
+      </dl>
+      <p class="wt-goal-outlook">${outlook}</p>
+      <p class="wt-hero-note">
+        Plan: ${Math.abs(s.planned).toFixed(2)} lb a week, ±${fmt(goal.band_lbs)} lb counts as on track.
+        ${notes.map(escapeHTML).join(' ')}
+      </p>
+      <button class="btn-link wt-goal-edit" data-act="wt-goal-edit">Edit goal</button>
+    </section>`;
+}
+
 function renderEntry() {
   const chips = [
     ...state.places.map((p) => ({ key: p.id, label: shortName(p.id) })),
@@ -223,19 +312,30 @@ function renderEntry() {
 /* ---------- the chart ---------- */
 
 function renderChart(analysis) {
-  const range = RANGES.find((r) => r.key === state.range);
+  const range = RANGES.find((r) => r.key === state.range) || RANGES[1];
   const all = asTrendReadings();
-  if (all.length < 2) return '';
+  const withGoal = goalOn();
+  if (all.length < (withGoal ? 1 : 2)) return '';
 
-  const end = dayStart(Date.now()) + DAY;
-  const start = range.days
-    ? end - range.days * DAY
-    : dayStart(Math.min(...all.map((r) => r.t)));
-  const dots = all.filter((r) => r.t >= start);
-  const line = analysis.trend.filter((p) => p.t >= start);
-  if (!dots.length) {
+  let end = dayStart(Date.now()) + DAY;
+  let start;
+  if (range.key === 'goal') {
+    start = localDate(state.goal.start_date);
+    end = Math.max(end, localDate(state.goal.goal_date) + DAY);
+  } else if (range.days) {
+    start = end - range.days * DAY;
+  } else {
+    start = dayStart(Math.min(...all.map((r) => r.t)));
+  }
+  const dots = all.filter((r) => r.t >= start && r.t < end);
+  const line = analysis.trend.filter((p) => p.t >= start && p.t < end);
+  if (!dots.length && !withGoal) {
     return `<p class="hint center">No weigh-ins in the last ${range.days} days.</p>`;
   }
+
+  // The plan across the visible window, with its tolerance either side.
+  const goal = withGoal ? goalPath(state.goal, start, end - DAY) : [];
+  const band = withGoal ? state.goal.band_lbs : 0;
 
   const width = Math.max(280, (root?.clientWidth || 360));
   const height = 200;
@@ -244,13 +344,19 @@ function renderChart(analysis) {
   const plotH = height - pad.top - pad.bottom;
 
   // Tight to the data, never from zero: a 3 lb change is the whole story.
-  const values = [...dots.map((d) => d.lbs), ...line.map((p) => p.value)];
+  // The band edges count as data, so the plan is always in view.
+  const values = [
+    ...dots.map((d) => d.lbs),
+    ...line.map((p) => p.value),
+    ...goal.flatMap((p) => [p.value - band, p.value + band]),
+  ];
   const step = niceStep(Math.max(...values) - Math.min(...values) + 2);
   const lo = Math.floor((Math.min(...values) - 1) / step) * step;
   const hi = Math.ceil((Math.max(...values) + 1) / step) * step;
 
   const x = (t) => pad.left + ((t - start) / (end - start)) * plotW;
   const y = (v) => pad.top + (1 - (v - lo) / (hi - lo)) * plotH;
+  const pt = (t, v) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`;
 
   const grid = [];
   for (let v = lo; v <= hi + 1e-9; v += step) {
@@ -267,13 +373,24 @@ function renderChart(analysis) {
       text-anchor="${i === 0 ? 'start' : i === tickCount ? 'end' : 'middle'}">${shortDate(t)}</text>`);
   }
 
-  const path = line.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+  // The band is a wash under everything else; the line itself is dashed so it
+  // reads as "the plan", not as another measurement.
+  let plan = '';
+  if (goal.length) {
+    const upper = goal.map((p) => pt(p.t, p.value + band));
+    const lower = [...goal].reverse().map((p) => pt(p.t, p.value - band));
+    plan = `
+      <polygon class="wt-band" points="${[...upper, ...lower].join(' ')}" fill="${GOAL_COLOR}"/>
+      <polyline class="wt-goal-line" points="${goal.map((p) => pt(p.t, p.value)).join(' ')}"
+                stroke="${GOAL_COLOR}"/>`;
+  }
+
+  const path = line.map((p, i) => `${i ? 'L' : 'M'}${pt(p.t, p.value)}`).join(' ');
 
   const marks = dots.map((d) => `
     <circle class="wt-dot" cx="${x(d.t).toFixed(1)}" cy="${y(d.lbs).toFixed(1)}" r="4.5"
             fill="${colorFor(d.scale)}"/>`).join('');
 
-  // Crosshair on the day being inspected.
   // Crosshair on the day being inspected, through that day's dots.
   let crosshair = '';
   const inspected = dots.filter((d) => dayStart(d.t) === state.inspect);
@@ -283,25 +400,30 @@ function renderChart(analysis) {
   }
 
   const scalesShown = [...new Set(dots.map((d) => d.scale))];
-  const legend = scalesShown.length >= 2 ? `
+  const legend = scalesShown.length >= 2 || goal.length ? `
     <div class="wt-legend">
       ${scalesShown.map((key) => `<span><i class="wt-key" style="background:${colorFor(key)}"></i>${escapeHTML(shortName(key))}</span>`).join('')}
       <span><i class="wt-line-key"></i>Trend (corrected)</span>
+      ${goal.length ? `
+        <span><i class="wt-dash-key" style="border-color:${GOAL_COLOR}"></i>Goal</span>
+        <span><i class="wt-band-key" style="background:${GOAL_COLOR}"></i>±${fmt(band)} lb</span>` : ''}
     </div>` : '';
 
   return `
     <div class="wt-ranges">
-      ${RANGES.map((r) => `<button class="chip ${state.range === r.key ? 'is-on' : ''}"
+      ${RANGES.filter((r) => r.key !== 'goal' || withGoal).map((r) => `<button class="chip ${state.range === r.key ? 'is-on' : ''}"
         data-act="wt-range" data-range="${r.key}">${r.label}</button>`).join('')}
     </div>
     <p class="wt-readout" id="wtReadout" aria-live="polite">${renderReadout(analysis)}</p>
     <svg class="wt-chart" id="wtChart" width="${width}" height="${height}"
          viewBox="0 0 ${width} ${height}" role="img"
-         aria-label="Bodyweight trend chart; every reading is listed below"
+         aria-label="Bodyweight trend chart with the goal line; every reading is listed below"
          data-start="${start}" data-end="${end}" data-left="${pad.left}" data-plot="${plotW}">
       ${grid.join('')}
+      ${xTicks.join('')}
       <line class="wt-axis" x1="${pad.left}" x2="${width - pad.right}"
             y1="${height - pad.bottom}" y2="${height - pad.bottom}"/>
+      ${plan}
       ${crosshair}
       ${marks}
       ${path ? `<path class="wt-trend" d="${path}" stroke="${TREND_COLOR}"/>` : ''}
@@ -319,6 +441,7 @@ function renderReadout(analysis) {
 
   const parts = [`<strong>${escapeHTML(longDate(day))}</strong>`];
   if (trend) parts.push(`trend <strong>${fmt(trend.value)}</strong>`);
+  if (goalOn()) parts.push(`plan <strong>${fmt(goalLineAt(state.goal, day + DAY - 1))}</strong>`);
   for (const r of onDay) parts.push(`${escapeHTML(shortName(r.scale))} <strong>${fmt(r.lbs)}</strong>`);
   if (!onDay.length) parts.push('<span class="wt-muted">no weigh-in</span>');
   return parts.join(' · ');
@@ -351,6 +474,7 @@ export function render() {
   root.innerHTML = `
     ${renderReminder()}
     ${renderHero(analysis)}
+    ${renderGoal(analysis)}
     ${renderEntry()}
     ${renderChart(analysis)}
     ${renderList()}`;
@@ -423,6 +547,11 @@ async function onClick(event) {
       state.range = trigger.dataset.range;
       state.inspect = null;
       return render();
+
+    case 'wt-goal-edit':
+      // The form lives on the Settings tab; the shell does the switching.
+      document.dispatchEvent(new CustomEvent('liftlog:open-settings', { detail: { section: 'goal' } }));
+      return;
 
     case 'wt-del': {
       const reading = state.readings.find((r) => r.id === trigger.dataset.id);

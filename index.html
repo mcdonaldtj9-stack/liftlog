@@ -54,6 +54,36 @@
          to a vibration iOS gives a web app.</p>
       <button class="btn" id="enableNotify">Allow rest alerts</button>
 
+      <h3 class="section-label" id="goalSection">Weight goal</h3>
+      <p class="hint">A straight line from where you started to where you're going. The
+         Weight tab measures your trend against it, and anything within the tolerance
+         counts as on track.</p>
+      <div class="goal-form">
+        <div class="field">
+          <label for="goalStartDate">Start date</label>
+          <input class="search" id="goalStartDate" type="date">
+        </div>
+        <div class="field">
+          <label for="goalStartLbs">Start weight (lbs)</label>
+          <input class="num" id="goalStartLbs" type="text" inputmode="decimal" autocomplete="off" placeholder="0.0">
+        </div>
+        <div class="field">
+          <label for="goalDate">Goal date</label>
+          <input class="search" id="goalDate" type="date">
+        </div>
+        <div class="field">
+          <label for="goalLbs">Goal weight (lbs)</label>
+          <input class="num" id="goalLbs" type="text" inputmode="decimal" autocomplete="off" placeholder="0.0">
+        </div>
+        <div class="field is-wide">
+          <label for="goalBand">On track within ± (lbs)</label>
+          <input class="num" id="goalBand" type="text" inputmode="decimal" autocomplete="off" placeholder="2">
+        </div>
+      </div>
+      <p class="hint" id="goalPlan"></p>
+      <button class="btn btn-block" id="saveGoal">Save goal</button>
+      <p class="hint" id="goalMessage"></p>
+
       <h3 class="section-label">Sync</h3>
       <dl class="kv">
         <dt>Status</dt><dd id="syncState">—</dd>

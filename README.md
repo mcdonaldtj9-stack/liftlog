@@ -40,6 +40,15 @@ assume you always train in the same place. This one doesn't.
   skew it) and removed before the trend is drawn — so alternating between two
   scales that disagree by 2 lbs doesn't turn into a sawtooth. The headline is
   the smoothed trend and its change over four weeks, never the latest raw number.
+- **A goal you can see.** Set a start weight and date and a goal weight and
+  date (Settings → Weight goal) and the Weight tab draws the straight line
+  between them with a ±2 lb tolerance band, editable, so a salty dinner doesn't
+  read as falling off the plan. Everything is measured against the smoothed
+  trend, never a raw reading: where the line says you should be, the
+  difference, your real rate over the last 14 days, and the date that rate
+  lands you on the goal. Two weeks under 0.25 lb/week is flagged as stalled;
+  over 1.5 lb/week as too fast. The goal syncs and backs up with everything
+  else.
 - **Tells you when to go up.** If last session hit every target set at RPE 8
   or lower, the next one offers +5 lbs (+2.5 on light work). No RPE, no
   suggestion: without it there's no telling "easy" from "ground out".
@@ -110,6 +119,7 @@ silent data bug would cost a logged workout belongs in it.
 8. ✅ History: weekly sets by region, per-exercise strength trend, rep maxes, sessions
 9. ✅ Backup, restore and spreadsheet export
 10. ✅ Exercise editing, set correction, progression prompts, PRs, rest per exercise
+11. ✅ Weight goal: goal line, tolerance band, pace and projection, synced settings
 
 ## Notes
 

@@ -8,8 +8,10 @@ import * as supa from './supa.js';
 import * as sync from './sync.js';
 import * as backup from './export.js';
 import * as db from './db.js';
+import * as store from './store.js';
+import { DEFAULT_GOAL, validateGoal, plannedRate } from './goal.js';
 
-const BUILD = '22';
+const BUILD = '23';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -33,7 +35,10 @@ function show(name) {
   // The chart sizes itself to its container, which measures zero while hidden.
   if (name === 'weight') weight.reload();
   if (name === 'history') history.reload();
-  if (name === 'settings') prepareExport();
+  if (name === 'settings') {
+    prepareExport();
+    loadGoalForm();
+  }
 }
 
 document.getElementById('tabbar').addEventListener('click', (e) => {
@@ -148,6 +153,14 @@ document.addEventListener('liftlog:open-session', async (event) => {
   await history.openSession(event.detail.id);
 });
 
+/* "Edit goal" on the Weight tab lands on the goal form in Settings. */
+document.addEventListener('liftlog:open-settings', (event) => {
+  show('settings');
+  if (event.detail?.section === 'goal') {
+    document.getElementById('goalSection')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+});
+
 weight.mount(document.getElementById('view-weight')).catch((err) => {
   console.error('[liftlog] weight view failed to start', err);
 });
@@ -213,6 +226,7 @@ async function runSync({ quiet = false } = {}) {
       await train.reload();
       await weight.reload();
       await history.reload();
+      await loadGoalForm();
     }
     if (!quiet) {
       setMessage(result.pushed || result.pulled
@@ -294,6 +308,65 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') scheduleSync(800);
 });
 window.addEventListener('online', () => scheduleSync(500));
+
+/* ---------- weight goal ---------- */
+
+const GOAL_FIELDS = {
+  start_date: 'goalStartDate', start_lbs: 'goalStartLbs',
+  goal_date: 'goalDate', goal_lbs: 'goalLbs', band_lbs: 'goalBand',
+};
+
+function goalMessage(text, tone = '') {
+  const node = byId('goalMessage');
+  if (!node) return;
+  node.textContent = text || '';
+  node.className = `hint ${tone}`;
+}
+
+function readGoalForm() {
+  const raw = {};
+  for (const [key, id] of Object.entries(GOAL_FIELDS)) raw[key] = byId(id)?.value ?? '';
+  return validateGoal(raw);
+}
+
+/* The planned pace, live as you type, so a typo in a date shows up as a
+   silly number before it's saved. */
+function showGoalPlan() {
+  const { goal, problems } = readGoalForm();
+  const node = byId('goalPlan');
+  if (!node) return;
+  node.textContent = problems.length
+    ? ''
+    : `That's ${Math.abs(plannedRate(goal)).toFixed(2)} lb a week, ${Math.round((goal.start_lbs - goal.goal_lbs) * 10) / 10} lb in total.`;
+}
+
+/* Hoisted like prepareExport: show() may run for a remembered Settings tab
+   before the rest of this module has evaluated. */
+async function loadGoalForm() {
+  if (!byId('goalStartDate')) return;
+  const goal = await store.getSetting('weight_goal', DEFAULT_GOAL);
+  for (const [key, id] of Object.entries(GOAL_FIELDS)) {
+    const input = byId(id);
+    // Don't stomp on something you're in the middle of typing.
+    if (input && document.activeElement !== input) input.value = String(goal[key] ?? '');
+  }
+  showGoalPlan();
+}
+
+for (const id of Object.values(GOAL_FIELDS)) {
+  byId(id)?.addEventListener('input', () => { goalMessage(''); showGoalPlan(); });
+}
+
+byId('saveGoal')?.addEventListener('click', async () => {
+  const { goal, problems } = readGoalForm();
+  if (problems.length) return goalMessage(problems.join(' '), 'warn');
+  await store.saveSetting('weight_goal', goal);
+  goalMessage('Saved. The Weight tab now measures against it.');
+  await weight.reload();
+  scheduleSync(300);
+});
+
+loadGoalForm();
 
 /* ---------- your data: export and restore ---------- */
 
