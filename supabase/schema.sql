@@ -62,6 +62,7 @@ create table if not exists public.places (
   radius_m          integer,
   accuracy_m        double precision,   -- how precise the saved fix was
   located_at        text,               -- when it was saved
+  for_weight        smallint not null default 0,  -- a scale, not a gym
   created_at        text not null,
   updated_at        text not null,
   deleted           smallint not null default 0,
@@ -74,6 +75,7 @@ create table if not exists public.templates (
   name              text not null,
   place_id          uuid,
   position          integer,
+  archived          smallint not null default 0,  -- put away, not deleted
   created_at        text not null,
   updated_at        text not null,
   deleted           smallint not null default 0,

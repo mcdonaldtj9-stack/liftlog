@@ -27,9 +27,9 @@ const TABLES = [
   ['exercises', 'exercises',
     ['id', 'name', 'name_key', 'muscle_group', 'tracks', 'is_custom', 'rest_seconds']],
   ['places', 'places',
-    ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at']],
+    ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at', 'for_weight']],
   ['templates', 'templates',
-    ['id', 'name', 'place_id', 'position']],
+    ['id', 'name', 'place_id', 'position', 'archived']],
   ['template_exercises', 'template_exercises',
     ['id', 'template_id', 'exercise_id', 'position', 'target_sets', 'target_reps']],
   ['workouts', 'workouts',
@@ -46,6 +46,11 @@ const TABLES = [
 ];
 
 const COMMON = ['created_at', 'updated_at', 'deleted'];
+
+/* 0/1 locally, smallint NOT NULL remotely. Older records predate some of
+   these entirely, and a missing one must go up as 0, never as null. */
+const FLAGS = ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted',
+  'for_weight', 'archived'];
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -60,7 +65,7 @@ function toRow(record, columns) {
     if (value === undefined) value = null;
     // Flags are 0/1 locally and smallint remotely; older rows predate some
     // of these fields entirely.
-    if (['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted'].includes(column)) {
+    if (FLAGS.includes(column)) {
       value = value ? 1 : 0;
     }
     row[column] = value;
@@ -74,7 +79,7 @@ function fromRow(row, columns) {
   for (const column of [...columns, ...COMMON]) {
     record[column] = row[column] ?? null;
   }
-  for (const flag of ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted']) {
+  for (const flag of FLAGS) {
     if (flag in record) record[flag] = record[flag] ? 1 : 0;
   }
   record.dirty = 0;

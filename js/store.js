@@ -3,7 +3,7 @@
    standalone web apps aggressively, so nothing important lives in memory only. */
 
 import * as db from './db.js';
-import { SEED_EXERCISES, SEED_PLACES } from './seed.js';
+import { SEED_EXERCISES, SEED_PLACES, HOME_PLACES } from './seed.js';
 import { bestE1RM, modeOf } from './rules.js';
 
 /* Collapse a name to a comparison key so "Incline  Bench" and "incline bench"
@@ -17,6 +17,7 @@ export function nameKey(name) {
 export async function init() {
   await db.open();
   await seedPlaces();
+  await seedHomePlaces();
   await sweepOrphanNotes();
 
   const seeded = await db.getMeta('seeded_at');
@@ -72,7 +73,23 @@ async function seedPlaces() {
   await db.setMeta('places_seeded_at', db.nowISO());
 }
 
-/* ---------- places ---------- */
+/* The weigh-in places have fixed ids, so this is put-if-absent by id on
+   every start rather than a one-time seed: a phone that already ran the
+   original seed still gets them, and a record deleted later stays deleted
+   (its tombstone is a record, so it's found). */
+async function seedHomePlaces() {
+  for (const { id, name } of HOME_PLACES) {
+    if (await db.get('places', id)) continue;
+    await db.put('places', db.newRecord({
+      id, name, lat: null, lng: null, radius_m: 250, for_weight: 1,
+    }));
+  }
+}
+
+/* ---------- places ----------
+   A place is either somewhere you train or somewhere you weigh yourself,
+   never both: the scale chips on the Weight tab and the gym list on the Train
+   tab are different lists. */
 
 export function lastPlaceId() {
   return db.getMeta('last_place_id', null);
@@ -81,6 +98,14 @@ export function lastPlaceId() {
 export async function listPlaces() {
   const all = await db.getAll('places');
   return all.filter(db.isLive).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listGyms() {
+  return (await listPlaces()).filter((p) => !p.for_weight);
+}
+
+export async function listScales() {
+  return (await listPlaces()).filter((p) => p.for_weight);
 }
 
 export async function createPlace(name) {
@@ -118,10 +143,27 @@ export async function setWorkoutPlace(workout, placeId) {
    belong to a location, because the same day is a different list of exercises
    at a commercial gym than it is in a garage. */
 
+const byPosition = (a, b) =>
+  (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name);
+
+/* The routines you're running now. Archived ones are kept out of the way —
+   a programme you've finished with, until you want it back. */
 export async function listTemplates() {
   const all = await db.getAll('templates');
-  return all.filter(db.isLive).sort((a, b) =>
-    (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name));
+  return all.filter((t) => db.isLive(t) && !t.archived).sort(byPosition);
+}
+
+export async function listArchivedTemplates() {
+  const all = await db.getAll('templates');
+  return all.filter((t) => db.isLive(t) && t.archived).sort(byPosition);
+}
+
+export function archiveTemplate(template) {
+  return updateTemplate(template, { archived: 1 });
+}
+
+export function restoreTemplate(template) {
+  return updateTemplate(template, { archived: 0 });
 }
 
 export async function getTemplate(id) {

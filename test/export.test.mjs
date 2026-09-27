@@ -18,7 +18,7 @@ const ex = await import('../js/export.js');
 await store.init();
 
 // A realistic little history.
-const places = await store.listPlaces();
+const places = await store.listGyms();   // the home scales also say Fenton
 const pf = places.find((p) => p.name.includes('Fenton'));
 const bench = (await store.listExercises()).find((e) => e.name === 'Barbell Bench Press');
 const custom = await store.createExercise({ name: '=HYPERLINK("http://evil","click")' });

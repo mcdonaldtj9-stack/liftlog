@@ -106,8 +106,8 @@ check('RPE survived', sets[0].rpe === 9);
 
 check('the custom exercise survived',
   (await store.listExercises()).some((e) => e.id === 'ex-2'));
-check('places were not re-seeded over the existing one',
-  (await store.listPlaces()).length === 1);
+check('gyms were not re-seeded over the existing one (home scales are added by id)',
+  (await store.listPlaces()).filter((p) => !p.for_weight).length === 1);
 check('the existing note survived',
   (await store.getNote('w-1', 'ex-1')).body === 'Go up 10 next time');
 check('notes still resolve by location',

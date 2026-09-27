@@ -39,7 +39,8 @@ let root = null;
 
 const state = {
   readings: [],
-  places: [],
+  places: [],           // every place, for naming old readings
+  scales: [],           // the ones you weigh at — the chips
   scaleId: null,        // selected scale for the next entry; null = other
   draft: '',
   date: '',             // yyyy-mm-dd, '' = now
@@ -73,7 +74,8 @@ function shortName(key) {
    was created, so filtering the range can't repaint anything. */
 function colorFor(key) {
   if (key === 'other') return FOLDED_COLOR;
-  const ordered = [...state.places].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  // Slots go to the scales in use; readings from anywhere else fold to neutral.
+  const ordered = [...scalesInUse()].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const index = ordered.findIndex((p) => p.id === key);
   return index >= 0 && index < SCALE_COLORS.length ? SCALE_COLORS[index] : FOLDED_COLOR;
 }
@@ -117,7 +119,13 @@ function asTrendReadings() {
 async function refresh() {
   state.readings = await store.listWeights();
   state.places = await store.listPlaces();
+  state.scales = await store.listScales();
   state.goal = await store.getSetting('weight_goal', DEFAULT_GOAL);
+}
+
+/* The chips: the places flagged for weighing, or every place if none are. */
+function scalesInUse() {
+  return state.scales.length ? state.scales : state.places;
 }
 
 const goalOn = () => isValidGoal(state.goal);
@@ -266,7 +274,7 @@ function renderGoal(analysis) {
 
 function renderEntry() {
   const chips = [
-    ...state.places.map((p) => ({ key: p.id, label: shortName(p.id) })),
+    ...scalesInUse().map((p) => ({ key: p.id, label: shortName(p.id) })),
     { key: 'other', label: 'Other' },
   ].map(({ key, label }) => `
     <button class="chip ${scaleKey(state.scaleId) === key ? 'is-on' : ''}"
@@ -611,6 +619,11 @@ export async function mount(element) {
 
   await refresh();
   state.scaleId = await store.lastScaleId();
+  // The remembered scale may be a gym from before the home scales existed,
+  // or nothing at all on a fresh install: either way, start on a real scale.
+  if (!scalesInUse().some((p) => p.id === state.scaleId)) {
+    state.scaleId = scalesInUse()[0]?.id ?? null;
+  }
   await prefillFromScale();
   render();
 }

@@ -19,6 +19,14 @@ export const SEED_PLACES = [
   'Effingham Garage',
 ];
 
+/* Where the scales are, as opposed to where the lifting is. Fixed ids, so
+   every install creates the same two records and sync can't end up with a
+   second "Home — Fenton". */
+export const HOME_PLACES = [
+  { id: '5c0e4a7e-0b1d-4f8a-9c3e-000000000001', name: 'Home — Fenton' },
+  { id: '5c0e4a7e-0b1d-4f8a-9c3e-000000000002', name: 'Home — Effingham' },
+];
+
 export const MUSCLE_GROUPS = [
   'Chest', 'Back', 'Shoulders', 'Quads', 'Hamstrings',
   'Glutes', 'Calves', 'Biceps', 'Triceps', 'Core', 'Other',

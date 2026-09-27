@@ -90,7 +90,7 @@ check('seeded exercises were not duplicated over it',
   exercises.filter((e) => e.name_key === 'barbell bench press').length === 1);
 
 const places = await store.listPlaces();
-check('places seeded on upgrade', places.length === 3, `got ${places.length}`);
+check('places seeded on upgrade: three gyms, two home scales', places.length === 5, `got ${places.length}`);
 
 // The new columns are absent on old rows; reading them must not throw.
 check('old sets read fine without the new fields',

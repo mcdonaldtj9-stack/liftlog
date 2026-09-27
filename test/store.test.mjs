@@ -127,8 +127,13 @@ check('discard stays out of recents',
 // ---------- places ----------
 
 const places = await store.listPlaces();
-check('seeds the three gyms', places.length === 3, `got ${places.length}`);
+check('seeds the three gyms and two home scales', places.length === 5, `got ${places.length}`);
 check('places start without coordinates', places.every((p) => p.lat === null && p.radius_m === 250));
+check('gyms and scales are separate lists',
+  (await store.listGyms()).length === 3 && (await store.listScales()).length === 2
+  && (await store.listScales()).every((p) => p.for_weight === 1 && p.name.startsWith('Home')));
+await store.init();
+check('home scales are not seeded twice', (await store.listScales()).length === 2);
 
 const fenton = places.find((p) => p.name.includes('Fenton'));
 const garage = places.find((p) => p.name.includes('Garage'));
@@ -643,6 +648,20 @@ check('a deleted exercise leaves the list', !(await store.listExercises()).some(
 check('but its logged sets stay', (await store.setsForWorkout(editSession.id))
   .some((s) => s.exercise_id === gone.id));
 await store.discardWorkout(await store.getActiveWorkout());
+
+// ---------- archiving routines ----------
+
+const parked = await store.createTemplate({ name: 'Old Block', exerciseIds: [] });
+await store.archiveTemplate(parked);
+check('an archived routine leaves the list',
+  !(await store.listTemplates()).some((t) => t.id === parked.id));
+check('and waits in the archive', (await store.listArchivedTemplates()).some((t) => t.id === parked.id));
+check('still openable by id, so a session started from it keeps its name',
+  (await store.getTemplate(parked.id))?.name === 'Old Block');
+await store.restoreTemplate(parked);
+check('restoring brings it back', (await store.listTemplates()).some((t) => t.id === parked.id)
+  && (await store.listArchivedTemplates()).length === 0);
+await store.deleteTemplate(parked);
 
 // ---------- settings ----------
 
