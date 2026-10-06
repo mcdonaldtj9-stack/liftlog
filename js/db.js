@@ -4,7 +4,7 @@
    Booleans are stored as 0/1 because IndexedDB can't index true/false. */
 
 const DB_NAME = 'liftlog';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const SCHEMA = {
   exercises: {
@@ -58,6 +58,15 @@ const SCHEMA = {
     keyPath: 'id',
     indexes: { by_key: 'key', by_updated: 'updated_at', by_dirty: 'dirty' },
   },
+  // Progress photos: the facts about a photo. Synced like everything else.
+  photos: {
+    keyPath: 'id',
+    indexes: { by_taken: 'taken_at', by_updated: 'updated_at', by_dirty: 'dirty' },
+  },
+  // The JPEG bytes, kept apart so listing photos never hauls images through
+  // memory. Local only: the bytes travel to Storage, not through the tables.
+  // ArrayBuffers rather than Blobs — iOS Safari has lost Blobs from IndexedDB.
+  photo_blobs: { keyPath: 'id', indexes: {} },
   meta: { keyPath: 'key', indexes: {} },
 };
 

@@ -45,6 +45,12 @@ assume you always train in the same place. This one doesn't.
   value, so the first keystroke replaces it instead of appending to it.
 - **Routines can be archived.** A finished programme leaves the list and waits
   under "Archived routines" until you restore it.
+- **Progress photos.** Front, side and back shots live on the Weight tab,
+  each captioned with the day and the bodyweight trend that day. Open one and
+  put it beside the first photo of the same pose. Photos are shrunk on the
+  phone before they're kept, so they stay sharp on its screen without eating
+  it. With sync on, the images go to a private Storage bucket and come back
+  on a fresh install; the JSON backup carries only the facts about them.
 - **Scales are places too.** Weigh-ins are logged against the home scales
   (Fenton, Effingham), which are kept apart from the gyms: the Weight tab
   shows only the scales, the Train tab only the gyms.

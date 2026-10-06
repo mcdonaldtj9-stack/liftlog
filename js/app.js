@@ -12,7 +12,7 @@ import * as store from './store.js';
 import * as push from './push.js';
 import { DEFAULT_GOAL, validateGoal, plannedRate } from './goal.js';
 
-const BUILD = '25';
+const BUILD = '26';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
@@ -278,8 +278,13 @@ async function runSync({ quiet = false } = {}) {
       await weight.reload();
       await history.reload();
       await loadGoalForm();
+    } else if (result.photosDownloaded > 0) {
+      await weight.reload();
     }
-    if (!quiet) {
+    if (result.photosError) {
+      // The sets went up fine; say so, and say what didn't.
+      setMessage(`Synced. Photos didn't: ${result.photosError}`, 'warn');
+    } else if (!quiet) {
       setMessage(result.pushed || result.pulled
         ? `Sent ${result.pushed}, received ${result.pulled}.`
         : 'Already up to date.');
@@ -465,6 +470,7 @@ async function prepareExport() {
       plural(live('sets'), 'set'),
       plural(live('bodyweights'), 'weigh-in'),
       plural(live('templates'), 'routine'),
+      plural(live('photos'), 'photo'),
     ].join(' · ') + (lastExport
       ? ` · last backed up ${new Date(lastExport).toLocaleDateString()}`
       : ' · never backed up');

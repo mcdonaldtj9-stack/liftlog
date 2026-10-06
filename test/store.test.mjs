@@ -423,6 +423,48 @@ check('and takes its exercise rows with it',
 await store.discardWorkout(await store.getActiveWorkout());
 
 
+// ---------- progress photos ----------
+
+const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;
+check('no photos to begin with', (await store.listPhotos()).length === 0);
+const frontOld = await store.addPhoto({
+  taken_at: '2026-08-01T12:00:00.000Z', pose: 'front', full: jpeg(3000), thumb: jpeg(300),
+  width: 1200, height: 1600,
+});
+const sidePhoto = await store.addPhoto({
+  taken_at: '2026-09-01T12:00:00.000Z', pose: 'side', full: jpeg(2000), thumb: jpeg(200),
+});
+const frontNew = await store.addPhoto({
+  taken_at: '2026-10-01T12:00:00.000Z', pose: 'nonsense', full: jpeg(4000),
+});
+check('photos list oldest first',
+  (await store.listPhotos()).map((p) => p.id).join() === [frontOld.id, sidePhoto.id, frontNew.id].join());
+check('a photo records its byte size', frontOld.bytes === 3000 && frontOld.width === 1200);
+check('an unknown pose falls back to front', frontNew.pose === 'front');
+check('the facts record carries no image bytes',
+  !('full' in frontOld) && !('thumb' in frontOld));
+const bytes = await store.getPhotoBytes(frontOld.id);
+check('the bytes are kept apart, with the thumbnail',
+  bytes.full.byteLength === 3000 && bytes.thumb.byteLength === 300 && bytes.uploaded === 0);
+check('a photo without a thumbnail reads back without one',
+  (await store.getPhotoBytes(frontNew.id)).thumb === null);
+await store.savePhotoThumb(frontNew.id, jpeg(50));
+check('a thumbnail can be added later', (await store.getPhotoBytes(frontNew.id)).thumb.byteLength === 50);
+check('nothing is missing bytes yet', (await store.photosMissingBytes()).length === 0);
+
+await store.deletePhoto(sidePhoto);
+check('deleting a photo hides it', !(await store.listPhotos()).some((p) => p.id === sidePhoto.id));
+check('and frees its bytes at once', (await store.getPhotoBytes(sidePhoto.id)) === null);
+check('but leaves a tombstone so the deletion syncs',
+  (await db.get('photos', sidePhoto.id)).deleted === 1 && (await db.get('photos', sidePhoto.id)).dirty === 1);
+check('and a stub so Storage gets cleaned up',
+  (await db.get('photo_blobs', sidePhoto.id)) !== undefined);
+
+// A record that arrived from elsewhere, without its bytes.
+await db.put('photos', { ...frontOld, id: 'remote-photo', dirty: 0 });
+check('a photo without local bytes is reported as missing',
+  (await store.photosMissingBytes()).map((p) => p.id).join() === 'remote-photo');
+
 // ---------- estimated 1RM ----------
 
 const nowISO = new Date().toISOString();

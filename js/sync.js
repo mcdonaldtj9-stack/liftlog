@@ -45,6 +45,13 @@ const TABLES = [
     ['id', 'key', 'value']],
 ];
 
+/* Progress photos sync apart from the rest: the table is new enough that an
+   older server may not have it, and the bytes are heavy and go to Storage.
+   Neither is allowed to stop a logged set from going up. */
+const PHOTOS = ['photos', 'photos',
+  ['id', 'taken_at', 'pose', 'note', 'width', 'height', 'bytes']];
+export const PHOTO_BUCKET = 'progress-photos';
+
 const COMMON = ['created_at', 'updated_at', 'deleted'];
 
 /* 0/1 locally, smallint NOT NULL remotely. Older records predate some of
@@ -147,14 +154,91 @@ async function pullStore(store, table, columns) {
   return applied;
 }
 
+/* ---------- photo bytes ---------- */
+
+const photoPath = (userId, photo) => `${userId}/${photo.id}.jpg`;
+
+/* Upload bytes this phone took, fetch bytes another device took, and remove
+   the Storage copy of anything deleted. One photo failing is noted and the
+   rest carry on; only being offline or signed out stops the pass. */
+async function syncPhotoBytes() {
+  const userId = await supa.userId();
+  if (!userId) return { uploaded: 0, downloaded: 0, error: 'No user id in the session' };
+
+  let uploaded = 0;
+  let downloaded = 0;
+  let error = null;
+
+  for (const photo of await db.getAll('photos')) {
+    try {
+      const blobs = await db.get('photo_blobs', photo.id);
+
+      if (photo.deleted) {
+        if (blobs) {
+          await supa.storageDelete(PHOTO_BUCKET, photoPath(userId, photo));
+          await db.hardDelete('photo_blobs', photo.id);
+        }
+        continue;
+      }
+
+      if (blobs?.full) {
+        if (!blobs.uploaded) {
+          await supa.storageUpload(PHOTO_BUCKET, photoPath(userId, photo), blobs.full,
+            blobs.mime || 'image/jpeg');
+          const current = await db.get('photo_blobs', photo.id);
+          if (current?.full) await db.put('photo_blobs', { ...current, uploaded: 1 });
+          uploaded++;
+        }
+        continue;
+      }
+
+      // No bytes here: another device took it, or this is a restored backup.
+      const bytes = await supa.storageDownload(PHOTO_BUCKET, photoPath(userId, photo));
+      if (bytes) {
+        await db.put('photo_blobs', {
+          id: photo.id, mime: 'image/jpeg', full: bytes, thumb: null, uploaded: 1,
+        });
+        downloaded++;
+      }
+    } catch (err) {
+      if (err instanceof supa.OfflineError || err instanceof supa.AuthError) throw err;
+      error = error || err.message || String(err);
+    }
+  }
+
+  return { uploaded, downloaded, error };
+}
+
+/* Photos, table and bytes, as one soft stage: a failure here is reported on
+   the result and remembered, never thrown at the sets. */
+async function syncPhotos() {
+  const [store, table, columns] = PHOTOS;
+  try {
+    const pushed = await pushStore(store, table, columns);
+    const pulled = await pullStore(store, table, columns);
+    const bytes = await syncPhotoBytes();
+    await db.setMeta('sync_photos_error', bytes.error);
+    return { pushed, pulled, ...bytes };
+  } catch (err) {
+    if (err instanceof supa.OfflineError || err instanceof supa.AuthError) throw err;
+    const message = /photos.*(404|Could not find)/s.test(err.message || '')
+      ? 'photos need the server update (run supabase/photos.sql)'
+      : err.message || String(err);
+    await db.setMeta('sync_photos_error', message);
+    return { pushed: 0, pulled: 0, uploaded: 0, downloaded: 0, error: message };
+  }
+}
+
 /* ---------- the whole thing ---------- */
 
 export async function pendingCount() {
   let total = 0;
-  for (const [store] of TABLES) {
+  for (const [store] of [...TABLES, PHOTOS]) {
     const all = await db.getAll(store);
     total += all.filter((record) => record.dirty).length;
   }
+  const blobs = await db.getAll('photo_blobs');
+  total += blobs.filter((row) => row.full && !row.uploaded).length;
   return total;
 }
 
@@ -167,6 +251,7 @@ export async function status() {
     email: session?.email ?? null,
     lastSyncAt: await db.getMeta('sync_last_at', null),
     lastError: await db.getMeta('sync_last_error', null),
+    photosError: await db.getMeta('sync_photos_error', null),
     pending: await pendingCount(),
   };
 }
@@ -194,9 +279,19 @@ export async function syncNow() {
         pulled += await pullStore(store, table, columns);
       }
 
+      // Last, and on its own: nothing about photos may fail the sets above.
+      const photos = await syncPhotos();
+      pushed += photos.pushed;
+      pulled += photos.pulled;
+
       await db.setMeta('sync_last_at', db.nowISO());
       await db.setMeta('sync_last_error', null);
-      return { ok: true, pushed, pulled };
+      return {
+        ok: true, pushed, pulled,
+        photosUploaded: photos.uploaded,
+        photosDownloaded: photos.downloaded,
+        photosError: photos.error || null,
+      };
     } catch (error) {
       if (error instanceof supa.OfflineError) {
         return { ok: false, reason: 'offline' };
@@ -217,7 +312,7 @@ export async function syncNow() {
    signing in on a fresh install, where the local database is empty but the
    watermarks from a previous account would otherwise skip the whole history. */
 export async function resetWatermarks() {
-  for (const [, table] of TABLES) {
+  for (const [, table] of [...TABLES, PHOTOS]) {
     await db.setMeta(`sync_watermark_${table}`, null);
   }
 }

@@ -5,6 +5,7 @@
    dots so the correction stays honest and visible. */
 
 import * as store from './store.js';
+import * as photos from './photos.js';
 import { analyse, trendAt } from './trend.js';
 import {
   goalStatus, goalPath, goalLineAt, localDate, isValidGoal,
@@ -36,6 +37,8 @@ const RANGES = [
 ];
 
 let root = null;
+let main = null;     // everything but the photos
+let gallery = null;  // the photos, painted only when they change
 
 const state = {
   readings: [],
@@ -475,17 +478,25 @@ function renderList() {
 
 /* ---------- render ---------- */
 
+/* The bodyweight trend on a day, for the photo captions. */
+function trendLbsAt(analysis) {
+  return (t) => trendAt(analysis.trend, t)?.value ?? null;
+}
+
+/* Repaints the weight half only. The photo grid lives in its own container
+   so a drag across the chart doesn't rebuild forty thumbnails. */
 export function render() {
   if (!root) return;
   const analysis = analyse(asTrendReadings());
 
-  root.innerHTML = `
+  main.innerHTML = `
     ${renderReminder()}
     ${renderHero(analysis)}
     ${renderGoal(analysis)}
     ${renderEntry()}
     ${renderChart(analysis)}
     ${renderList()}`;
+  photos.setTrend(trendLbsAt(analysis));
 }
 
 /* ---------- events ---------- */
@@ -527,6 +538,7 @@ async function logReading({ confirmed = false } = {}) {
 }
 
 async function onClick(event) {
+  if (await photos.onClick(event)) return;
   const trigger = event.target.closest('[data-act]');
   if (!trigger) return;
   const { act } = trigger.dataset;
@@ -572,6 +584,7 @@ async function onClick(event) {
 }
 
 function onInput(event) {
+  if (photos.onInput(event)) return;
   if (event.target.id === 'wtValue') {
     state.draft = event.target.value;
     if (state.pendingConfirm) {
@@ -612,12 +625,20 @@ function onPointer(event) {
 
 export async function mount(element) {
   root = element;
+  main = document.createElement('div');
+  gallery = document.createElement('div');
+  gallery.className = 'ph-section';
+  root.replaceChildren(main, gallery);
   root.addEventListener('click', onClick);
   root.addEventListener('input', onInput);
+  root.addEventListener('change', (e) => { photos.onChange(e); });
   root.addEventListener('pointerdown', onPointer);
   root.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'mouse') onPointer(e); });
 
   await refresh();
+  // Nothing in the weight half depends on the photos, so adding or deleting
+  // one leaves it alone — and a weight typed but not yet logged stays put.
+  await photos.mount(gallery, { trendAt: trendLbsAt(analyse(asTrendReadings())) });
   state.scaleId = await store.lastScaleId();
   // The remembered scale may be a gym from before the home scales existed,
   // or nothing at all on a fresh install: either way, start on a real scale.
@@ -635,6 +656,7 @@ export async function reload() {
   readInputs();
   await refresh();
   render();
+  await photos.reload();
 }
 
 /* For the Train tab's idle screen: how overdue the next weigh-in is. */

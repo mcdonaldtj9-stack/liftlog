@@ -1,7 +1,7 @@
 /* LiftLog service worker.
    Bump CACHE on every deploy — that's what evicts the old build. */
 
-const CACHE = 'liftlog-v25';
+const CACHE = 'liftlog-v26';
 
 const SHELL = [
   './',
@@ -20,6 +20,7 @@ const SHELL = [
   'js/trend.js',
   'js/goal.js',
   'js/weight.js',
+  'js/photos.js',
   'js/chart.js',
   'js/history.js',
   'js/historyview.js',

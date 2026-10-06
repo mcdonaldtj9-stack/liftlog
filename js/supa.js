@@ -59,8 +59,9 @@ export async function signOut() {
 }
 
 /* Any network-level failure is reported as offline: navigator.onLine lies
-   often enough that a failed request is the more honest signal. */
-async function call(path, { method = 'POST', headers = {}, body } = {}) {
+   often enough that a failed request is the more honest signal.
+   `raw` sends the body as given (image bytes for Storage) rather than JSON. */
+async function call(path, { method = 'POST', headers = {}, body, raw = false } = {}) {
   const { url, anonKey } = await getConfig();
   if (!url || !anonKey) throw new AuthError('Supabase is not configured yet');
 
@@ -68,13 +69,29 @@ async function call(path, { method = 'POST', headers = {}, body } = {}) {
   try {
     response = await fetch(`${url}${path}`, {
       method,
-      headers: { apikey: anonKey, 'Content-Type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: raw
+        ? { apikey: anonKey, ...headers }
+        : { apikey: anonKey, 'Content-Type': 'application/json', ...headers },
+      body: body === undefined ? undefined : (raw ? body : JSON.stringify(body)),
     });
   } catch (cause) {
     throw new OfflineError('Could not reach Supabase');
   }
   return response;
+}
+
+/* The signed-in user's id, read from the access token. Storage paths start
+   with it, which is how the bucket policies know whose folder is whose. */
+export async function userId() {
+  const session = await getSession();
+  const token = session?.access_token;
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload)).sub || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function signIn(email, password) {
@@ -136,6 +153,46 @@ async function authed(path, options = {}, { retrying = false } = {}) {
   }
 
   return response;
+}
+
+/* ---------- Storage ----------
+   Objects live under <user id>/<record id>.jpg in a private bucket; see
+   supabase/photos.sql for the policies that keep each user to their folder. */
+
+function objectPath(bucket, path) {
+  return `/storage/v1/object/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export async function storageUpload(bucket, path, bytes, mime = 'image/jpeg') {
+  const response = await authed(objectPath(bucket, path), {
+    method: 'POST',
+    raw: true,
+    headers: { 'Content-Type': mime, 'x-upsert': 'true' },
+    body: bytes,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Upload of ${path} failed (${response.status}) ${detail}`.trim());
+  }
+}
+
+/* The object's bytes, or null when the server has no such object. */
+export async function storageDownload(bucket, path) {
+  const response = await authed(objectPath(bucket, path), { method: 'GET', raw: true });
+  if (response.status === 404 || response.status === 400) return null;
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Download of ${path} failed (${response.status}) ${detail}`.trim());
+  }
+  return response.arrayBuffer();
+}
+
+/* Removing something already gone counts as success. */
+export async function storageDelete(bucket, path) {
+  const response = await authed(objectPath(bucket, path), { method: 'DELETE', raw: true });
+  if (response.ok || response.status === 404 || response.status === 400) return;
+  const detail = await response.text().catch(() => '');
+  throw new Error(`Delete of ${path} failed (${response.status}) ${detail}`.trim());
 }
 
 /* ---------- PostgREST ---------- */

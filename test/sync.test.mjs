@@ -37,11 +37,15 @@ const rowsOf = (table) => {
   return server.tables.get(table);
 };
 
+/* Shaped like a JWT so the client can read the user id out of it. */
 function issueToken() {
-  const token = `token-${++server.tokenSerial}`;
+  const payload = Buffer.from(JSON.stringify({ sub: 'user-1' })).toString('base64url');
+  const token = `h.${payload}.sig-${++server.tokenSerial}`;
   server.liveTokens.add(token);
   return token;
 }
+
+const storage = new Map();   // object path -> bytes
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' },
@@ -52,8 +56,13 @@ globalThis.fetch = async (url, options = {}) => {
 
   const parsed = new URL(url);
   const path = parsed.pathname;
-  const body = options.body ? JSON.parse(options.body) : null;
-  server.requests.push({ path, search: parsed.search, method: options.method, body });
+  const isStorage = path.startsWith('/storage/v1/object/');
+  const body = options.body && !isStorage ? JSON.parse(options.body) : null;
+  server.requests.push({
+    path, search: parsed.search, method: options.method, body,
+    rawBytes: isStorage && options.body ? options.body.byteLength : null,
+    contentType: options.headers?.['Content-Type'] || null,
+  });
 
   if (server.failNextWith) {
     const status = server.failNextWith;
@@ -81,7 +90,27 @@ globalThis.fetch = async (url, options = {}) => {
   const auth = (options.headers?.Authorization || '').replace('Bearer ', '');
   if (!server.liveTokens.has(auth)) return json({ message: 'JWT expired' }, 401);
 
+  // Storage: a bucket of bytes keyed by path.
+  if (isStorage) {
+    const key = decodeURIComponent(path.replace('/storage/v1/object/', ''));
+    if (options.method === 'POST') {
+      if (!key.startsWith('progress-photos/user-1/')) return json({ message: 'denied' }, 403);
+      storage.set(key, options.body);
+      return json({ Key: key });
+    }
+    if (options.method === 'DELETE') {
+      if (!storage.has(key)) return json({ message: 'not found' }, 404);
+      storage.delete(key);
+      return json({ message: 'ok' });
+    }
+    if (!storage.has(key)) return json({ message: 'not found' }, 404);
+    return new Response(storage.get(key), { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+  }
+
   const table = path.replace('/rest/v1/', '');
+  if (table === 'photos' && server.noPhotosTable) {
+    return json({ message: "Could not find the table 'public.photos'" }, 404);
+  }
 
   if (options.method === 'POST') {
     for (const row of body) {
@@ -319,6 +348,64 @@ check('and the work is still pending', (await sync.pendingCount()) > 0);
 const healthy = await sync.syncNow();
 check('a later sync recovers', healthy.ok === true);
 check('and clears the recorded error', (await sync.status()).lastError === null);
+
+/* ---------- progress photos ---------- */
+
+check('the user id is read from the token', (await supa.userId()) === 'user-1');
+
+const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;
+const shot = await store.addPhoto({
+  taken_at: '2026-10-01T12:00:00.000Z', pose: 'front', full: jpeg(1500), thumb: jpeg(100),
+});
+check('a new photo counts as pending', (await sync.pendingCount()) > 0);
+
+const photoSync = await sync.syncNow();
+check('the photo sync succeeds', photoSync.ok && photoSync.photosError === null, JSON.stringify(photoSync));
+check('the facts reach the photos table', rowsOf('photos').has(shot.id));
+check('and carry no bytes', !('full' in rowsOf('photos').get(shot.id)));
+check('the bytes reach Storage under the user folder',
+  storage.has(`progress-photos/user-1/${shot.id}.jpg`)
+  && storage.get(`progress-photos/user-1/${shot.id}.jpg`).byteLength === 1500);
+check('the upload is remembered', (await db.get('photo_blobs', shot.id)).uploaded === 1);
+check('nothing is pending afterwards', (await sync.pendingCount()) === 0);
+check('an upload sends raw bytes, not JSON', server.requests.some((r) =>
+  r.path.includes('/storage/v1/object/') && r.method === 'POST'
+  && r.rawBytes === 1500 && r.contentType === 'image/jpeg'));
+
+// A photo another device took: facts come down, bytes follow.
+storage.set('progress-photos/user-1/remote-shot.jpg', jpeg(777));
+seedRemote('photos', {
+  id: 'remote-shot', taken_at: '2026-09-15T12:00:00.000Z', pose: 'side', note: null,
+  width: 1200, height: 1600, bytes: 777,
+  created_at: '2026-09-15T12:00:00.000Z', updated_at: '2026-09-15T12:00:00.000Z',
+});
+const pulledPhotos = await sync.syncNow();
+check('a remote photo arrives', (await store.listPhotos()).some((p) => p.id === 'remote-shot'));
+check('and its bytes are fetched from Storage',
+  pulledPhotos.photosDownloaded === 1 && (await store.getPhotoBytes('remote-shot'))?.full.byteLength === 777);
+check('fetched bytes are not re-uploaded', (await db.get('photo_blobs', 'remote-shot')).uploaded === 1);
+
+// Deleting removes the Storage copy and the local stub.
+await store.deletePhoto(shot);
+await sync.syncNow();
+check('a deleted photo leaves Storage', !storage.has(`progress-photos/user-1/${shot.id}.jpg`));
+check('and the tombstone reaches the server', rowsOf('photos').get(shot.id).deleted === 1);
+check('and the local stub is gone', (await db.get('photo_blobs', shot.id)) === undefined);
+
+// A server without the photos table yet must not break the rest of the sync.
+server.noPhotosTable = true;
+await store.addSet({ workout_id: workout.id, exercise_id: bench.id, weight: 235, reps: 1 });
+await store.addPhoto({ taken_at: '2026-10-02T12:00:00.000Z', pose: 'back', full: jpeg(10) });
+const softFail = await sync.syncNow();
+check('a missing photos table does not fail the sync', softFail.ok === true, JSON.stringify(softFail));
+check('but is reported in plain words', /server update/.test(softFail.photosError || ''), softFail.photosError);
+check('and the set still went up', [...rowsOf('sets').values()].some((s) => s.weight === 235));
+check('and the photo stays pending', (await sync.pendingCount()) > 0);
+check('the photo trouble is remembered for the status line', Boolean((await sync.status()).photosError));
+server.noPhotosTable = false;
+const healed = await sync.syncNow();
+check('once the table exists the photo goes up', healed.photosError === null && (await sync.pendingCount()) === 0,
+  JSON.stringify(healed));
 
 const finalStatus = await sync.status();
 check('status reports a signed-in account', finalStatus.signedIn && finalStatus.email);

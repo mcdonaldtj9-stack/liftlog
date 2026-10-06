@@ -317,6 +317,80 @@ export async function addWorkoutExtrasToTemplate(workout) {
   return added;
 }
 
+/* ---------- progress photos ----------
+   A photo is two records: the facts (date, pose, size) in `photos`, which
+   sync like any other table, and the bytes in `photo_blobs`, which stay on
+   this phone and go up to Storage separately. `uploaded` on the bytes record
+   is this phone's bookkeeping, like `dirty`. */
+
+export const POSES = ['front', 'side', 'back'];
+
+export async function listPhotos() {
+  const all = await db.getAll('photos');
+  return all.filter(db.isLive).sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+}
+
+export async function addPhoto({
+  taken_at = db.nowISO(), pose = 'front', note = null, width = null, height = null,
+  full, thumb = null, mime = 'image/jpeg',
+}) {
+  if (!full) throw new Error('A photo needs its bytes');
+  const record = db.newRecord({
+    taken_at,
+    pose: POSES.includes(pose) ? pose : 'front',
+    note: note || null,
+    width,
+    height,
+    bytes: full.byteLength ?? null,
+  });
+  await db.put('photo_blobs', { id: record.id, mime, full, thumb, uploaded: 0 });
+  await db.put('photos', record);
+  return record;
+}
+
+export async function updatePhoto(photo, changes) {
+  const next = db.touch(photo, changes);
+  await db.put('photos', next);
+  return next;
+}
+
+/* The bytes go the moment you delete: that's the storage you wanted back. A
+   stub stays behind so the next sync knows to remove the copy in Storage. */
+export async function deletePhoto(photo) {
+  const next = db.touch(photo, { deleted: 1 });
+  await db.put('photos', next);
+  const blobs = await db.get('photo_blobs', photo.id);
+  await db.put('photo_blobs', {
+    id: photo.id, mime: null, full: null, thumb: null, uploaded: blobs?.uploaded ?? 0,
+  });
+  return next;
+}
+
+export async function getPhotoBytes(id) {
+  const row = await db.get('photo_blobs', id);
+  return row?.full ? row : null;
+}
+
+/* Store a thumbnail made later for bytes that arrived without one. */
+export async function savePhotoThumb(id, thumb) {
+  const row = await db.get('photo_blobs', id);
+  if (!row?.full) return null;
+  const next = { ...row, thumb };
+  await db.put('photo_blobs', next);
+  return next;
+}
+
+/* Live photos this phone has no bytes for: a fresh install, or a restore from
+   a backup. The gallery shows them as waiting until a sync brings them down. */
+export async function photosMissingBytes() {
+  const photos = await listPhotos();
+  const missing = [];
+  for (const photo of photos) {
+    if (!(await getPhotoBytes(photo.id))) missing.push(photo);
+  }
+  return missing;
+}
+
 /* ---------- bodyweight ----------
    Each reading remembers which scale it came from, because scales disagree and
    the trend corrects for it. The scale is a place id, or null for "somewhere

@@ -18,8 +18,11 @@ export const FORMAT = 1;
 /* Every table a backup carries. `meta` is absent on purpose. */
 export const TABLES = [
   'exercises', 'places', 'templates', 'template_exercises',
-  'workouts', 'sets', 'exercise_notes', 'bodyweights', 'settings',
+  'workouts', 'sets', 'exercise_notes', 'bodyweights', 'settings', 'photos',
 ];
+/* Photos are in the backup as facts only — date, pose, size. The images
+   themselves live in Supabase Storage and come back down on the first sync
+   after a restore; they are far too big to ride along in a JSON file. */
 
 /* ---------- building ---------- */
 

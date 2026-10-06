@@ -67,7 +67,7 @@ const db = await import('../js/db.js');
 await store.init();
 
 const handle = await db.open();
-check('upgraded to the current version', handle.version === 5, `got ${handle.version}`);
+check('upgraded to the current version', handle.version === 6, `got ${handle.version}`);
 check('the bodyweight store exists', handle.objectStoreNames.contains('bodyweights'));
 
 check('the routine survived with its targets',
