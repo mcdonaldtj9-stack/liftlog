@@ -1093,6 +1093,7 @@ div.place-choose { cursor: default; }
 .save-routine { margin-top: 14px; }
 .save-routine .search { margin-bottom: 10px; }
 .save-routine .btn { margin: 0; }
+.save-routine .hint { margin: 0 auto 10px; font-weight: 500; }
 
 /* A planned exercise with nothing logged against it yet. */
 .ex-block.is-planned { border-style: dashed; }

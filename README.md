@@ -16,7 +16,9 @@ assume you always train in the same place. This one doesn't.
   Legs. A routine can belong to a gym, so the Planet Fitness version and the
   garage version live side by side under the same name. Finish a session and
   save it as a routine rather than building one by hand — targets are inferred
-  from what you actually did.
+  from what you actually did. Started from a routine and added an exercise on
+  the day? Finishing offers to add it to that routine, targets inferred the same
+  way, with nothing already in it touched.
 - **Weight suggestions.** Give an exercise a target rep count and it suggests a
   load from your recent estimated 1RM (RPE-aware Epley, 60-day window, ~2 reps
   in reserve). Always offered as a tap, never prefilled — the weight box still

@@ -42,6 +42,7 @@ const state = {
   geoBusy: null,               // place id being captured, or 'detect'
   exDraft: null,               // exercise being edited
   targets: new Map(),    // exercise id -> {sets, reps} from the routine
+  extras: [],            // exercises logged this session that the routine lacks
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
 };
@@ -54,6 +55,13 @@ const escapeHTML = (value) =>
   ));
 
 const exerciseById = (id) => state.exercises.find((e) => e.id === id) || null;
+
+/* "Lateral Raise", "Lateral Raise and Face Pull", "A, B and C". */
+function listNames(exerciseIds) {
+  const names = exerciseIds.map((id) => escapeHTML(exerciseById(id)?.name || 'an exercise'));
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 function formatDuration(seconds) {
   const s = Math.max(0, Math.round(seconds));
@@ -141,6 +149,7 @@ async function refresh() {
   state.template = state.workout?.template_id
     ? state.templates.find((t) => t.id === state.workout.template_id) || null
     : null;
+  state.extras = state.template ? await store.extrasForTemplate(state.workout) : [];
   state.place = state.workout?.place_id
     ? state.places.find((p) => p.id === state.workout.place_id) || null
     : null;
@@ -293,7 +302,13 @@ function renderActive() {
         <button class="btn btn-quiet" data-act="cancel-finish">Keep going</button>
         <button class="btn" data-act="confirm-finish">Finish</button>
       </div>
-      ${state.template ? '' : `
+      ${state.template ? (state.extras.length ? `
+        <div class="save-routine">
+          <p class="hint">You added ${listNames(state.extras)} this session.</p>
+          <button class="btn btn-quiet btn-block" data-act="finish-update">
+            Finish &amp; add to ${escapeHTML(state.template.name)}
+          </button>
+        </div>` : '') : `
         <div class="save-routine">
           <input class="search" id="routineName" type="text" autocomplete="off"
                  autocapitalize="words" placeholder="Save as a routine, e.g. Push">
@@ -1419,14 +1434,14 @@ async function onClick(event) {
         return;
       }
       await store.createTemplateFromWorkout(state.workout, name);
-      await store.finishWorkout(state.workout);
-      await rest.stop();
-      state.rest.endsAt = null;
-      state.confirmFinish = false;
-      state.sheet = null;
-      await refresh();
-      return render();
+      return endSession();
     }
+
+    /* The routine gains whatever was added and done this session; nothing
+       already in it is touched. */
+    case 'finish-update':
+      await store.addWorkoutExtrasToTemplate(state.workout);
+      return endSession();
 
     case 'log':
       return openLogSheet(trigger.dataset.ex);
@@ -1557,6 +1572,9 @@ async function onClick(event) {
     }
 
     case 'finish':
+      // Logging a set doesn't re-read the routine, so work out here what this
+      // session added that the routine lacks: the offer below depends on it.
+      state.extras = state.template ? await store.extrasForTemplate(state.workout) : [];
       state.confirmFinish = true;
       return render();
 
@@ -1565,14 +1583,7 @@ async function onClick(event) {
       return render();
 
     case 'confirm-finish':
-      await store.finishWorkout(state.workout);
-      await rest.stop();
-      state.rest.endsAt = null;
-      push.cancel();
-      state.confirmFinish = false;
-      state.sheet = null;
-      await refresh();
-      return render();
+      return endSession();
 
     case 'discard':
       await store.discardWorkout(state.workout);
@@ -1584,6 +1595,19 @@ async function onClick(event) {
       await refresh();
       return render();
   }
+}
+
+/* Close the session out: stamp the end time, stop the rest timer and any
+   lock-screen alert still queued for it, and go back to the start screen. */
+async function endSession() {
+  await store.finishWorkout(state.workout);
+  await rest.stop();
+  state.rest.endsAt = null;
+  push.cancel();
+  state.confirmFinish = false;
+  state.sheet = null;
+  await refresh();
+  render();
 }
 
 /* Re-read everything and repaint. Called after a sync pulls new data, and a

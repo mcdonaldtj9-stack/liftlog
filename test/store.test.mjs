@@ -533,6 +533,38 @@ check('inferred sets count only working sets',
 check('inferred reps take the most common value',
   inferredRows[0].row.target_reps === 8, `got ${inferredRows[0].row.target_reps}`);
 
+// Something added mid-session that the routine doesn't have can be folded in.
+check('a session with nothing extra reports no extras',
+  (await store.extrasForTemplate(await store.getActiveWorkout())).length === 0);
+const lateral = await store.createExercise({ name: 'Lateral Raise' });
+const facePull = await store.createExercise({ name: 'Face Pull' });
+await store.addToPlan(await store.getActiveWorkout(), facePull.id);   // added, never done
+await store.addSet({ workout_id: targetedSession.id, exercise_id: lateral.id, weight: 20, reps: 15 });
+await new Promise((r) => setTimeout(r, 2));
+await store.addSet({ workout_id: targetedSession.id, exercise_id: lateral.id, weight: 20, reps: 15 });
+const extras = await store.extrasForTemplate(await store.getActiveWorkout());
+check('extras are the logged exercises the routine lacks',
+  extras.length === 1 && extras[0] === lateral.id, extras.join(','));
+check('a session with no routine has no extras',
+  (await store.extrasForTemplate({ template_id: null })).length === 0);
+
+const added = await store.addWorkoutExtrasToTemplate(await store.getActiveWorkout());
+const grown = await store.templateExercises(targeted.id);
+check('the extra is appended to the routine',
+  grown.map((e) => e.exercise.id).join(',') === [bench.id, press.id, lateral.id].join(','),
+  grown.map((e) => e.exercise.name).join(' / '));
+check('with targets inferred from the session',
+  added[0].target_sets === 2 && added[0].target_reps === 15
+  && grown[2].row.target_sets === 2 && grown[2].row.target_reps === 15);
+check('existing targets are left alone',
+  grown[0].row.target_sets === 3 && grown[0].row.target_reps === 8
+  && grown[1].row.target_sets === 4 && grown[1].row.target_reps === 6);
+check('an added-but-unstarted exercise is not saved',
+  !grown.some((e) => e.exercise.id === facePull.id));
+check('folding in is idempotent',
+  (await store.addWorkoutExtrasToTemplate(await store.getActiveWorkout())).length === 0
+  && (await store.templateExercises(targeted.id)).length === 3);
+
 // And the estimate is available for the suggestion.
 const benchE1RM = await store.bestE1RMFor(bench.id);
 check('an estimate is available after real sets', benchE1RM > 0);

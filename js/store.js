@@ -262,6 +262,20 @@ export async function deleteTemplate(template) {
   return next;
 }
 
+/* Targets come from what you actually did: how many working sets, and the
+   rep count you hit most often. A session of 8, 8, 7 becomes a 3 x 8 target. */
+function inferTargets(sets, exerciseIds) {
+  return exerciseIds.map((exercise_id) => {
+    const working = sets.filter((s) =>
+      s.exercise_id === exercise_id && !s.is_warmup && !s.is_dropset);
+    return {
+      exercise_id,
+      target_sets: working.length || null,
+      target_reps: modeOf(working.map((s) => s.reps).filter((r) => r > 0)),
+    };
+  });
+}
+
 /* Build a template out of a session you've already done — far quicker than
    assembling one by hand, and the order is the order you actually trained in. */
 export async function createTemplateFromWorkout(workout, name) {
@@ -271,19 +285,36 @@ export async function createTemplateFromWorkout(workout, name) {
   const planned = (workout.plan || []).filter((id) => fromSets.includes(id));
   const extra = fromSets.filter((id) => !planned.includes(id));
 
-  // Targets come from what you actually did: how many working sets, and the
-  // rep count you hit most often. A session of 8, 8, 7 becomes a 3 x 8 target.
-  const exercises = [...planned, ...extra].map((exercise_id) => {
-    const working = sets.filter((s) =>
-      s.exercise_id === exercise_id && !s.is_warmup && !s.is_dropset);
-    return {
-      exercise_id,
-      target_sets: working.length || null,
-      target_reps: modeOf(working.map((s) => s.reps).filter((r) => r > 0)),
-    };
-  });
-
+  const exercises = inferTargets(sets, [...planned, ...extra]);
   return createTemplate({ name, place_id: workout.place_id || null, exercises });
+}
+
+/* Exercises you actually logged this session that its routine doesn't have,
+   in the order you did them. Measured against the routine rather than the
+   session plan, so something unplanned and re-added isn't counted as new, and
+   an exercise added but never started doesn't count either. */
+export async function extrasForTemplate(workout) {
+  if (!workout?.template_id) return [];
+  const inRoutine = new Set(
+    (await templateExercises(workout.template_id)).map((entry) => entry.exercise.id));
+  const sets = await setsForWorkout(workout.id);
+  return [...new Set(sets.map((s) => s.exercise_id))].filter((id) => !inRoutine.has(id));
+}
+
+/* Append this session's extra exercises to the routine it was started from.
+   Existing entries keep their place and their targets; the new ones go on the
+   end with targets inferred from what was done. Never removes anything. */
+export async function addWorkoutExtrasToTemplate(workout) {
+  const extras = await extrasForTemplate(workout);
+  if (!extras.length) return [];
+  const current = (await templateExercises(workout.template_id)).map(({ row }) => ({
+    exercise_id: row.exercise_id,
+    target_sets: row.target_sets ?? null,
+    target_reps: row.target_reps ?? null,
+  }));
+  const added = inferTargets(await setsForWorkout(workout.id), extras);
+  await setTemplateExercises(workout.template_id, [...current, ...added]);
+  return added;
 }
 
 /* ---------- bodyweight ----------
