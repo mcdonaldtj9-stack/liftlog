@@ -509,6 +509,28 @@ export async function lastSessionSets(exerciseId, options = {}) {
   };
 }
 
+/* The most recent earlier sessions of an exercise, newest first, each with
+   every set in the order it was logged — warmups and drops included, since
+   this is for reading back exactly what happened. Any gym counts: the card
+   says which one each session was at. */
+export async function recentSessionsFor(exerciseId, { excludeWorkoutId = null, limit = 3 } = {}) {
+  const sets = (await db.getAllByIndex('sets', 'by_exercise', exerciseId)).filter(db.isLive);
+  const workouts = new Map((await db.getAll('workouts')).filter(db.isLive).map((w) => [w.id, w]));
+  const byWorkout = new Map();
+  for (const set of sets) {
+    if (set.workout_id === excludeWorkoutId || !workouts.has(set.workout_id)) continue;
+    if (!byWorkout.has(set.workout_id)) byWorkout.set(set.workout_id, []);
+    byWorkout.get(set.workout_id).push(set);
+  }
+  return [...byWorkout.entries()]
+    .map(([id, rows]) => ({
+      workout: workouts.get(id),
+      sets: rows.sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    }))
+    .sort((a, b) => b.workout.started_at.localeCompare(a.workout.started_at))
+    .slice(0, limit);
+}
+
 /* Everything logged before now, as the bar a new set has to clear. */
 export async function priorSetsFor(exerciseId, options = {}) {
   return (await workingHistory(exerciseId, options)).sets;

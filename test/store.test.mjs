@@ -423,6 +423,33 @@ check('and takes its exercise rows with it',
 await store.discardWorkout(await store.getActiveWorkout());
 
 
+// ---------- the last few sessions of an exercise ----------
+
+await store.discardWorkout(await store.getActiveWorkout());
+const histEx = await store.createExercise({ name: 'History Press' });
+const histSessions = [];
+for (let i = 0; i < 4; i++) {
+  const w = await store.startWorkout();
+  await db.put('workouts', { ...w, started_at: `2026-0${i + 1}-10T10:00:00.000Z` });
+  await store.addSet({ workout_id: w.id, exercise_id: histEx.id, weight: 45, reps: 10, is_warmup: 1 });
+  await new Promise((r) => setTimeout(r, 2));
+  await store.addSet({ workout_id: w.id, exercise_id: histEx.id, weight: 100 + i * 5, reps: 8 });
+  await new Promise((r) => setTimeout(r, 2));
+  await store.finishWorkout(await db.get('workouts', w.id));
+  histSessions.push(w);
+}
+const today = await store.startWorkout();
+await store.addSet({ workout_id: today.id, exercise_id: histEx.id, weight: 120, reps: 8 });
+const recentHist = await store.recentSessionsFor(histEx.id, { excludeWorkoutId: today.id, limit: 3 });
+check('recent sessions come newest first, three of them',
+  recentHist.length === 3 && recentHist[0].workout.id === histSessions[3].id && recentHist[2].workout.id === histSessions[1].id);
+check('the current session is left out', !recentHist.some((r) => r.workout.id === today.id));
+check('every set is there, warmups included, in logged order',
+  recentHist[0].sets.length === 2 && recentHist[0].sets[0].is_warmup === 1 && recentHist[0].sets[1].weight === 115);
+check('an exercise never done has no history',
+  (await store.recentSessionsFor(custom.id, { excludeWorkoutId: today.id })).length === 0);
+await store.discardWorkout(today);
+
 // ---------- progress photos ----------
 
 const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;

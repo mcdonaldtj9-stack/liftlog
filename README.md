@@ -84,6 +84,10 @@ assume you always train in the same place. This one doesn't.
   at least 10 lbs above your last working set) or an implausible rep count asks
   you to confirm the actual numbers. Warmups, drop sets and failed attempts are
   excluded from the baseline so it only fires on genuine outliers.
+- **Every set of the last few sessions, mid-set.** The "Last time" line in
+  the logging sheet is a card: tap it and it flips to the last three sessions
+  of that exercise side by side, every set including warmups and drops, with
+  the date and gym on each. It stays flipped as you move between exercises.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
   no keyboard unless you want one.
 

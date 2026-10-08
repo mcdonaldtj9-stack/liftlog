@@ -42,6 +42,8 @@ const state = {
   geoBusy: null,               // place id being captured, or 'detect'
   exDraft: null,               // exercise being edited
   targets: new Map(),    // exercise id -> {sets, reps} from the routine
+  historyFlipped: false, // the log sheet's last-time card shows past sessions;
+                         // stays flipped from one exercise to the next
   extras: [],            // exercises logged this session that the routine lacks
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
@@ -579,6 +581,46 @@ function renderRestBar(exercise) {
     </div>${warmupsDone}${offer}`;
 }
 
+/* "Last time" on the front; tap and it flips to every set of the last few
+   sessions, side by side, so the whole picture is there between sets. */
+function renderHistoryCard(exercise) {
+  const sessions = state.sheet.history || [];
+  const last = state.sheet.last;
+  if (!sessions.length || !last) return '<p class="last-line">First time logging this one.</p>';
+
+  const spin = state.sheet.flipAnim ? ' is-flipping' : '';
+  if (!state.historyFlipped) {
+    return `
+      <button class="hist-card${spin}" data-act="flip-history" aria-expanded="false">
+        <span class="hist-front">Last time: <strong>${escapeHTML(describeSet(last, exercise))}</strong></span>
+        <span class="hist-hint">Last ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'} ↻</span>
+      </button>`;
+  }
+
+  const columns = sessions.map(({ workout, sets }) => {
+    const labels = setLabels(sets);
+    const place = state.places.find((p) => p.id === workout.place_id);
+    const where = place ? place.name.replace('Planet Fitness — ', 'PF ') : '';
+    return `
+      <div class="hist-col">
+        <div class="hist-when">${escapeHTML(formatDate(workout.started_at))}</div>
+        ${where ? `<div class="hist-where">${escapeHTML(where)}</div>` : ''}
+        <ol class="hist-sets">${sets.map((set, i) => `
+          <li class="${set.is_warmup ? 'is-warmup' : ''}${set.is_dropset ? ' is-drop' : ''}">
+            <span class="hist-n">${labels[i]}</span>${escapeHTML(describeSet(set, exercise))}${
+            set.is_pr ? '<span class="hist-pr">PR</span>' : ''}
+          </li>`).join('')}
+        </ol>
+      </div>`;
+  }).join('');
+
+  return `
+    <button class="hist-card is-back${spin}" data-act="flip-history" aria-expanded="true">
+      <div class="hist-cols" style="--cols:${sessions.length}">${columns}</div>
+      <span class="hist-hint">Tap to flip back</span>
+    </button>`;
+}
+
 function renderLogSheet() {
   const exercise = exerciseById(state.sheet.exerciseId);
   if (!exercise) return '';
@@ -599,9 +641,7 @@ function renderLogSheet() {
       <button class="set-del" data-act="del-set" data-set="${set.id}" aria-label="Delete set">×</button>
     </li>`).join('');
 
-  const lastLine = state.sheet.last
-    ? `Last time: ${escapeHTML(describeSet(state.sheet.last, exercise))}`
-    : 'First time logging this one.';
+  const lastLine = renderHistoryCard(exercise);
 
   const { target, e1rm, suggested, progression } = state.sheet;
   const targetText = target
@@ -721,7 +761,7 @@ function renderLogSheet() {
         ${musclePrompt}
         ${priorNote}
         ${targetLine}
-        <p class="last-line">${lastLine}</p>`}
+        ${lastLine}`}
 
       <div class="log-pair">
         ${weightField}
@@ -880,6 +920,9 @@ async function openLogSheet(exerciseId) {
   // Has anything been logged for this exercise in this session yet?
   const startedHere = state.sets.some((s) => s.exercise_id === exerciseId);
   const note = await store.getNote(state.workout.id, exerciseId);
+  const history = await store.recentSessionsFor(exerciseId, {
+    excludeWorkoutId: state.workout.id, limit: 3,
+  });
   const priorNote = await store.lastNoteFor(exerciseId, {
     placeId: state.workout.place_id,
     excludeWorkoutId: state.workout.id,
@@ -899,6 +942,8 @@ async function openLogSheet(exerciseId) {
     restOffer: null,
     pendingConfirm: null,
     priorNote,
+    history,
+    flipAnim: false,
     note: note?.body || '',
     draft: {
       // The suggestion is offered, never imposed: weight prefills from what you
@@ -1244,6 +1289,15 @@ async function onClick(event) {
       await refresh();
       return render();
     }
+
+    case 'flip-history':
+      readSheetInputs();
+      state.historyFlipped = !state.historyFlipped;
+      state.sheet.flipAnim = true;
+      render();
+      // The flip plays once; later repaints (a tap on RPE) mustn't replay it.
+      state.sheet.flipAnim = false;
+      return;
 
     case 'close':
       // Cancelling the picker while building a routine returns to the editor
