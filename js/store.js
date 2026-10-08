@@ -590,7 +590,9 @@ export async function findExercise(name) {
   return matches.find(db.isLive) || null;
 }
 
-export async function createExercise({ name, muscle_group = 'Other', tracks = 'weight_reps' }) {
+export async function createExercise({
+  name, muscle_group = 'Other', secondary_muscles = [], tracks = 'weight_reps',
+}) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Exercise needs a name');
 
@@ -601,6 +603,7 @@ export async function createExercise({ name, muscle_group = 'Other', tracks = 'w
     name: trimmed,
     name_key: nameKey(trimmed),
     muscle_group,
+    secondary_muscles: secondary_muscles.filter((m) => m !== muscle_group),
     tracks,
     is_custom: 1,
   });
@@ -617,6 +620,9 @@ export async function exerciseNameTaken(name, exceptId = null) {
 
 export async function updateExercise(exercise, changes) {
   const next = db.touch(exercise, changes);
+  // A muscle can't be both major and minor: the major one wins.
+  next.secondary_muscles = (Array.isArray(next.secondary_muscles) ? next.secondary_muscles : [])
+    .filter((m, i, all) => m !== next.muscle_group && all.indexOf(m) === i);
   if (changes.name !== undefined) {
     const trimmed = String(changes.name).trim();
     if (!trimmed) throw new Error('Exercise needs a name');

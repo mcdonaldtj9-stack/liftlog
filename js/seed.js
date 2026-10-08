@@ -32,6 +32,14 @@ export const MUSCLE_GROUPS = [
   'Glutes', 'Calves', 'Biceps', 'Triceps', 'Core', 'Other',
 ];
 
+/* An exercise's minor muscles: known names only, never the major one, no
+   repeats. Records from before minor muscles existed have none. */
+export function minorMuscles(exercise) {
+  const list = Array.isArray(exercise?.secondary_muscles) ? exercise.secondary_muscles : [];
+  return [...new Set(list)].filter((m) =>
+    MUSCLE_GROUPS.includes(m) && m !== 'Other' && m !== exercise?.muscle_group);
+}
+
 const W = 'weight_reps';
 const B = 'bodyweight_reps';
 const T = 'time';

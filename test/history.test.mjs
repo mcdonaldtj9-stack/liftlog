@@ -3,7 +3,8 @@
 import {
   regionOf, isWorkingSet, weekStart, filterByPlace, weeklySets,
   e1rmPerSession, bestByReps, meaningfulRepMaxes, e1rmChange,
-  sessionsForExercise, exerciseSummaries, placesForExercise,
+  sessionsForExercise, exerciseSummaries, placesForExercise, progressSeries, seriesChange,
+  bodyweightOn, relativeSeries,
 } from '../js/history.js';
 
 let passed = 0;
@@ -99,6 +100,98 @@ check('last week has its own sets', lastWeek.total === 2
   && lastWeek.byRegion.get('Legs') === 1 && lastWeek.byRegion.get('Other') === 1);
 check('anything older than the window is ignored',
   weeks.reduce((n, w) => n + w.total, 0) === 5);
+
+// Minor muscles earn half a set each, without inflating the totals.
+const pulldownMap = new Map([...exercises, ['pulldown', {
+  id: 'pulldown', muscle_group: 'Back', secondary_muscles: ['Biceps', 'Back', 'Nonsense', 'Biceps'],
+}]]);
+const pulldownWeeks = weeklySets([
+  set({ created_at: iso(daysBefore(0)), exercise_id: 'pulldown' }),
+  set({ created_at: iso(daysBefore(0)), exercise_id: 'pulldown' }),
+  set({ created_at: iso(daysBefore(0)), exercise_id: 'pulldown', is_warmup: 1 }),
+  set({ created_at: iso(daysBefore(0)), exercise_id: 'curl' }),
+], pulldownMap, { weeks: 2, now: NOW });
+const pw = pulldownWeeks[pulldownWeeks.length - 1];
+check('a minor muscle earns half a set per set', pw.byMuscle.get('Biceps') === 2,
+  `got ${pw.byMuscle.get('Biceps')}`);
+check('the major muscle still gets the full set', pw.byMuscle.get('Back') === 2);
+check('the bars count each set once', pw.total === 3 && pw.byRegion.get('Back') === 2
+  && pw.byRegion.get('Arms') === 1);
+check('unknown, repeated or major-as-minor entries are ignored',
+  !pw.byMuscle.has('Nonsense'));
+check('an exercise with no minor muscles behaves as before',
+  weeklySets([set({ created_at: iso(daysBefore(0)), exercise_id: 'curl' })], exercises,
+    { weeks: 1, now: NOW })[0].byMuscle.get('Biceps') === 1);
+
+// ---------- progress series ----------
+
+const pWorkouts = new Map([
+  ['p1', { id: 'p1', started_at: iso(daysBefore(20)), deleted: 0 }],
+  ['p2', { id: 'p2', started_at: iso(daysBefore(10)), deleted: 0 }],
+  ['p3', { id: 'p3', started_at: iso(daysBefore(5)), deleted: 0 }],
+]);
+const pSets = [
+  set({ workout_id: 'p1', weight: 95, reps: 10, is_warmup: 1 }),
+  set({ workout_id: 'p1', weight: 185, reps: 8 }),
+  set({ workout_id: 'p1', weight: 185, reps: 6 }),
+  set({ workout_id: 'p2', weight: 195, reps: 5 }),
+  set({ workout_id: 'p2', weight: 225, reps: 1, failed: 1 }),
+  set({ workout_id: 'p2', weight: 135, reps: 12, is_dropset: 1 }),
+  set({ workout_id: 'p3', weight: 190, reps: 8 }),
+  set({ workout_id: 'p3', weight: 190, reps: 9 }),
+];
+const top = progressSeries(pSets, pWorkouts, 'top');
+check('top set is the heaviest working set per session, oldest first',
+  top.map((p) => p.value).join() === '185,195,190');
+check('a tie on weight goes to the set with more reps', top[2].set.reps === 9);
+check('failed and drop sets never make the top set', top[1].set.weight === 195);
+const vol = progressSeries(pSets, pWorkouts, 'volume');
+check('volume adds weight × reps over working sets only',
+  vol[0].value === 185 * 14 && vol[1].value === 195 * 5 && vol[0].sets === 2, vol.map((p) => p.value).join());
+check('the 1RM series matches the existing estimate',
+  progressSeries(pSets, pWorkouts, 'e1rm').length === 3);
+
+const bwSets = [
+  set({ workout_id: 'p1', weight: 0, reps: 10 }), set({ workout_id: 'p1', weight: 0, reps: 8 }),
+  set({ workout_id: 'p2', weight: 0, reps: 12 }),
+];
+check('bodyweight best set and total reps',
+  progressSeries(bwSets, pWorkouts, 'reps').map((p) => p.value).join() === '10,12'
+  && progressSeries(bwSets, pWorkouts, 'totalReps').map((p) => p.value).join() === '18,12');
+check('no added weight means no added-weight chart',
+  progressSeries(bwSets, pWorkouts, 'top').length === 0);
+const holdSets = [
+  set({ workout_id: 'p1', weight: null, reps: null, seconds: 45 }),
+  set({ workout_id: 'p1', weight: null, reps: null, seconds: 60 }),
+  set({ workout_id: 'p3', weight: null, reps: null, seconds: 75 }),
+];
+check('holds chart the longest set and the total time',
+  progressSeries(holdSets, pWorkouts, 'hold').map((p) => p.value).join() === '60,75'
+  && progressSeries(holdSets, pWorkouts, 'totalTime').map((p) => p.value).join() === '105,75');
+const moved = seriesChange(top, { days: 84, now: NOW });
+check('a series reports its change over the window', moved && moved.days === 15, JSON.stringify(moved));
+
+// ---------- strength relative to bodyweight ----------
+
+const bwTrend = [
+  { t: daysBefore(15), value: 190 },
+  { t: daysBefore(8), value: 186 },
+  { t: daysBefore(1), value: 182 },
+];
+check('bodyweight on a day is the trend at or before it',
+  bodyweightOn(bwTrend, daysBefore(5)) === 186 && bodyweightOn(bwTrend, daysBefore(1)) === 182);
+check('a session shortly before the first weigh-in borrows it',
+  bodyweightOn(bwTrend, daysBefore(20)) === 190);
+check('a session long before any weigh-in has none',
+  bodyweightOn(bwTrend, daysBefore(60)) === null && bodyweightOn([], NOW) === null);
+const rel = relativeSeries([
+  { workoutId: 'a', t: daysBefore(60), value: 250 },
+  { workoutId: 'b', t: daysBefore(10), value: 247 },
+  { workoutId: 'c', t: daysBefore(1), value: 246 },
+], bwTrend);
+check('relative strength divides the 1RM by bodyweight on the day',
+  rel.length === 2 && Math.abs(rel[0].value - 247 / 190) < 1e-9 && rel[1].bodyweight === 182);
+check('it climbs on a cut while the 1RM holds', rel[1].value > rel[0].value && rel[1].e1rm < rel[0].e1rm);
 
 // ---------- e1RM per session ----------
 

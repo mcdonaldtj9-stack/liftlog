@@ -12,6 +12,7 @@
    is marked for upload so Supabase catches up. */
 
 import * as db from './db.js';
+import { minorMuscles } from './seed.js';
 
 export const FORMAT = 1;
 
@@ -90,7 +91,7 @@ export function buildSetsCSV(tables) {
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
   const rows = [[
-    'date', 'time', 'location', 'routine', 'exercise', 'muscle', 'set',
+    'date', 'time', 'location', 'routine', 'exercise', 'muscle', 'minor_muscles', 'set',
     'weight_lbs', 'reps', 'seconds', 'rpe', 'failed', 'warmup', 'drop_set', 'note',
   ]];
   const noted = new Set();
@@ -110,6 +111,7 @@ export function buildSetsCSV(tables) {
       templates.get(workout.template_id)?.name || '',
       exercise?.name || '(deleted exercise)',
       exercise?.muscle_group || '',
+      minorMuscles(exercise).join('; '),
       set.set_index ?? '',
       set.weight ?? '',
       set.reps ?? '',

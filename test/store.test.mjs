@@ -423,6 +423,20 @@ check('and takes its exercise rows with it',
 await store.discardWorkout(await store.getActiveWorkout());
 
 
+// ---------- major and minor muscles ----------
+
+const pulldown = await store.createExercise({
+  name: 'Wide Lat Pulldown', muscle_group: 'Back', secondary_muscles: ['Biceps', 'Back'],
+});
+check('a new exercise keeps its minor muscles, minus the major one',
+  JSON.stringify(pulldown.secondary_muscles) === '["Biceps"]');
+const promoted = await store.updateExercise(pulldown, { muscle_group: 'Biceps' });
+check('promoting a minor muscle to major drops it from the minors',
+  promoted.muscle_group === 'Biceps' && promoted.secondary_muscles.length === 0);
+const legacy = await store.updateExercise({ ...custom, secondary_muscles: undefined }, { rest_seconds: 90 });
+check('an exercise from before minor muscles gets an empty list',
+  Array.isArray(legacy.secondary_muscles) && legacy.secondary_muscles.length === 0);
+
 // ---------- the last few sessions of an exercise ----------
 
 await store.discardWorkout(await store.getActiveWorkout());

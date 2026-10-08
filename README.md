@@ -88,6 +88,18 @@ assume you always train in the same place. This one doesn't.
   the logging sheet is a card: tap it and it flips to the last three sessions
   of that exercise side by side, every set including warmups and drops, with
   the date and gym on each. It stays flipped as you move between exercises.
+- **Major and minor muscles.** Each exercise has one major muscle and any
+  number of minor ones (a lat pulldown: back, with biceps). In weekly volume a
+  set counts in full for its major muscle and as half a set for each minor
+  one; the bars still count every set once, so they add up to what you did.
+- **Progress charts for every exercise.** Open an exercise in History and
+  switch between charts: estimated 1RM, top set and session volume for
+  weighted lifts; best set and total reps for bodyweight work; longest set and
+  total time for holds. Tap any session on a chart to read it back.
+- **Strength against bodyweight.** Under a lift's strength chart sits your
+  bodyweight trend over the same dates, on its own scale. The Relative tab
+  divides the estimated 1RM by bodyweight on the day — on a cut, the number
+  that should climb while the 1RM holds steady.
 - **Fast between sets.** Weight and reps prefill from last time, big tap targets,
   no keyboard unless you want one.
 

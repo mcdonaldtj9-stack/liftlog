@@ -8,7 +8,7 @@
      - Deleting removes it from lists and pickers but keeps every logged set. */
 
 import * as store from './store.js';
-import { MUSCLE_GROUPS } from './seed.js';
+import { MUSCLE_GROUPS, minorMuscles } from './seed.js';
 import { PRESETS, format as formatRest } from './rest.js';
 
 const TRACKS = [
@@ -27,6 +27,7 @@ export async function draftFor(exercise) {
     id: exercise.id,
     name: exercise.name,
     muscle_group: exercise.muscle_group || 'Other',
+    secondary_muscles: minorMuscles(exercise),
     tracks: exercise.tracks || 'weight_reps',
     rest_seconds: exercise.rest_seconds ?? null,
     setCount: await store.setCountFor(exercise.id),
@@ -39,6 +40,12 @@ export function render(draft) {
   const muscles = MUSCLE_GROUPS.map((m) => `
     <button class="chip ${draft.muscle_group === m ? 'is-on' : ''}" data-act="ex-muscle"
             data-value="${escapeHTML(m)}">${escapeHTML(m)}</button>`).join('');
+
+  // Minor muscles: any number, never the major one, and "Other" means nothing.
+  const minors = MUSCLE_GROUPS.filter((m) => m !== 'Other' && m !== draft.muscle_group).map((m) => `
+    <button class="chip chip-minor ${draft.secondary_muscles.includes(m) ? 'is-on' : ''}"
+            data-act="ex-minor" data-value="${escapeHTML(m)}"
+            aria-pressed="${draft.secondary_muscles.includes(m)}">${escapeHTML(m)}</button>`).join('');
 
   const locked = draft.setCount > 0;
   const tracks = TRACKS.map(([key, label]) => `
@@ -79,8 +86,13 @@ export function render(draft) {
       </div>
 
       <div class="field">
-        <label>Muscle group <span class="optional">decides where it counts in weekly volume</span></label>
+        <label>Major muscle <span class="optional">one; a full set in weekly volume</span></label>
         <div class="chips chips-wrap">${muscles}</div>
+      </div>
+
+      <div class="field">
+        <label>Minor muscles <span class="optional">any number; half a set each</span></label>
+        <div class="chips chips-wrap">${minors}</div>
       </div>
 
       <div class="field">
@@ -116,7 +128,17 @@ export async function handle(act, trigger, draft, root) {
   switch (act) {
     case 'ex-muscle':
       draft.muscle_group = trigger.dataset.value;
+      // Promoting a minor muscle to major takes it off the minor list.
+      draft.secondary_muscles = draft.secondary_muscles.filter((m) => m !== draft.muscle_group);
       return 'changed';
+
+    case 'ex-minor': {
+      const muscle = trigger.dataset.value;
+      draft.secondary_muscles = draft.secondary_muscles.includes(muscle)
+        ? draft.secondary_muscles.filter((m) => m !== muscle)
+        : [...draft.secondary_muscles, muscle];
+      return 'changed';
+    }
 
     case 'ex-tracks':
       if (draft.setCount > 0) return 'changed';
@@ -151,6 +173,7 @@ export async function handle(act, trigger, draft, root) {
         const changes = {
           name: draft.name,
           muscle_group: draft.muscle_group,
+          secondary_muscles: draft.secondary_muscles,
           rest_seconds: draft.rest_seconds,
         };
         if (draft.setCount === 0) changes.tracks = draft.tracks;

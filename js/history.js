@@ -7,6 +7,18 @@
    failed set is by definition not something you did. */
 
 import { estimate1RM } from './rules.js';
+import { minorMuscles } from './seed.js';
+import { trendAt } from './trend.js';
+
+/* A session before your first weigh-in can borrow the first reading only if
+   it came this soon after; past that, bodyweight on the day is a guess. */
+export const BODYWEIGHT_REACH = 14 * DAY_MS();
+function DAY_MS() { return 24 * 60 * 60 * 1000; }
+
+/* A set counts in full for its major muscle and this much for each minor one.
+   Half is the usual convention: a lat pulldown trains the biceps, but nothing
+   like a curl does. */
+export const MINOR_SHARE = 0.5;
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -65,7 +77,12 @@ export function filterByPlace(sets, workoutsById, placeId = null) {
 /* Working sets per week, split by region AND by individual muscle, over the
    last `weeks` weeks ending with the current one. The current week is flagged
    partial: comparing six sets by Tuesday against last week's eighteen is a
-   false alarm. */
+   false alarm.
+
+   `total` and `byRegion` count each set once, by its major muscle, so the
+   bars add up to sets actually done. `byMuscle` also credits each minor
+   muscle with MINOR_SHARE of a set, which is what a muscle's weekly volume
+   really is. */
 export function weeklySets(sets, exercisesById, { weeks = 8, now = Date.now() } = {}) {
   const current = weekStart(now);
   const starts = [];
@@ -88,11 +105,15 @@ export function weeklySets(sets, exercisesById, { weeks = 8, now = Date.now() } 
     const bucket = buckets.get(weekStart(timeOf(set)));
     if (!bucket) continue;
 
-    const muscle = exercisesById.get(set.exercise_id)?.muscle_group || 'Other';
+    const exercise = exercisesById.get(set.exercise_id);
+    const muscle = exercise?.muscle_group || 'Other';
     const region = regionOf(muscle);
     bucket.total++;
     bucket.byRegion.set(region, (bucket.byRegion.get(region) || 0) + 1);
     bucket.byMuscle.set(muscle, (bucket.byMuscle.get(muscle) || 0) + 1);
+    for (const minor of minorMuscles(exercise)) {
+      bucket.byMuscle.set(minor, (bucket.byMuscle.get(minor) || 0) + MINOR_SHARE);
+    }
   }
 
   return starts.map((s) => buckets.get(s));
@@ -124,6 +145,104 @@ export function e1rmPerSession(sets, workoutsById) {
   }
 
   return [...best.values()].sort((a, b) => a.t - b.t);
+}
+
+/* One point per session for a progress metric, oldest first. Only working
+   sets count (no warmups, drops or F sets). A session with nothing to say for
+   the metric gets no point rather than a zero.
+
+     e1rm       best estimated 1RM               (weight × reps)
+     top        heaviest working set             (weight × reps, added weight)
+     volume     sum of weight × reps             (weight × reps)
+     reps       most reps in one set             (bodyweight)
+     totalReps  reps across all working sets     (bodyweight)
+     hold       longest set                      (time)
+     totalTime  time across all working sets     (time)
+
+   `set` is the set that made the point, where one did; `sets` is how many
+   working sets went into it. */
+export function progressSeries(sets, workoutsById, metric) {
+  if (metric === 'e1rm') {
+    return e1rmPerSession(sets, workoutsById)
+      .map((p) => ({ workoutId: p.workoutId, t: p.t, value: p.e1rm, set: p.set, sets: null }));
+  }
+
+  const byWorkout = new Map();
+  for (const set of sets) {
+    if (!isWorkingSet(set)) continue;
+    const workout = workoutsById.get(set.workout_id);
+    if (!workout || workout.deleted) continue;
+    if (!byWorkout.has(workout.id)) byWorkout.set(workout.id, { workout, sets: [] });
+    byWorkout.get(workout.id).sets.push(set);
+  }
+
+  const best = (list, key) => list.reduce((a, b) => {
+    if (!a) return b;
+    if ((b[key] || 0) > (a[key] || 0)) return b;
+    // Equal on the measure: the one with more reps, then the earlier, wins.
+    if ((b[key] || 0) === (a[key] || 0) && (b.reps || 0) > (a.reps || 0)) return b;
+    return a;
+  }, null);
+
+  const out = [];
+  for (const { workout, sets: done } of byWorkout.values()) {
+    let value = null;
+    let top = null;
+    if (metric === 'top') {
+      top = best(done.filter((s) => s.weight > 0), 'weight');
+      value = top?.weight ?? null;
+    } else if (metric === 'volume') {
+      value = done.reduce((n, s) => n + (s.weight > 0 && s.reps > 0 ? s.weight * s.reps : 0), 0);
+    } else if (metric === 'reps') {
+      top = best(done.filter((s) => s.reps > 0), 'reps');
+      value = top?.reps ?? null;
+    } else if (metric === 'totalReps') {
+      value = done.reduce((n, s) => n + (s.reps > 0 ? s.reps : 0), 0);
+    } else if (metric === 'hold') {
+      top = best(done.filter((s) => s.seconds > 0), 'seconds');
+      value = top?.seconds ?? null;
+    } else if (metric === 'totalTime') {
+      value = done.reduce((n, s) => n + (s.seconds > 0 ? s.seconds : 0), 0);
+    }
+    if (!(value > 0)) continue;
+    out.push({
+      workoutId: workout.id,
+      t: new Date(workout.started_at).getTime(),
+      value,
+      set: top,
+      sets: done.length,
+    });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+/* Bodyweight trend on the day of a session: the trend point at or before it,
+   or the first one if it comes within BODYWEIGHT_REACH after. Null when
+   there's no honest answer. */
+export function bodyweightOn(trend, t) {
+  if (!trend?.length) return null;
+  const point = trendAt(trend, t + DAY_MS() - 1);
+  if (point) return point.value;
+  return trend[0].t - t <= BODYWEIGHT_REACH ? trend[0].value : null;
+}
+
+/* Estimated 1RM as a multiple of bodyweight, per session. On a cut this is
+   the number that should climb even while the 1RM holds still. Sessions with
+   no bodyweight to divide by get no point. */
+export function relativeSeries(e1rmPoints, trend) {
+  const out = [];
+  for (const p of e1rmPoints) {
+    const bw = bodyweightOn(trend, p.t);
+    if (!(bw > 0)) continue;
+    out.push({ ...p, value: p.value / bw, e1rm: p.value, bodyweight: bw });
+  }
+  return out;
+}
+
+/* Change in any progress series across the last `days`, by the same
+   best-of-early against best-of-late rule as the 1RM. */
+export function seriesChange(points, options = {}) {
+  return e1rmChange(points.map((p) => ({ t: p.t, e1rm: p.value })), options);
 }
 
 /* Heaviest working weight for each rep count from 1 to 12, plus the set that

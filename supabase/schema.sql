@@ -44,6 +44,7 @@ create table if not exists public.exercises (
   name              text not null,
   name_key          text not null,
   muscle_group      text,
+  secondary_muscles jsonb not null default '[]'::jsonb,  -- minor muscles
   tracks            text,
   is_custom         smallint not null default 0,
   rest_seconds      integer,             -- remembered rest after this exercise

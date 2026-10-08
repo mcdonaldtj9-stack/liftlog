@@ -349,6 +349,21 @@ const healthy = await sync.syncNow();
 check('a later sync recovers', healthy.ok === true);
 check('and clears the recorded error', (await sync.status()).lastError === null);
 
+/* ---------- minor muscles ---------- */
+
+const pull = await store.createExercise({ name: 'Sync Pulldown', muscle_group: 'Back', secondary_muscles: ['Biceps'] });
+const oldStyle = await db.get('exercises', bench.id);
+await db.put('exercises', { ...oldStyle, secondary_muscles: undefined, updated_at: db.nowISO(), dirty: 1 });
+await sync.syncNow();
+check('minor muscles go up as a list', JSON.stringify(rowsOf('exercises').get(pull.id).secondary_muscles) === '["Biceps"]');
+check('an exercise without any goes up as an empty list, never null',
+  Array.isArray(rowsOf('exercises').get(bench.id).secondary_muscles)
+  && rowsOf('exercises').get(bench.id).secondary_muscles.length === 0);
+seedRemote('exercises', { ...rowsOf('exercises').get(pull.id), secondary_muscles: null, updated_at: '2027-01-01T00:00:00.000Z' });
+await sync.syncNow();
+check('a null from the server arrives as an empty list',
+  JSON.stringify((await db.get('exercises', pull.id)).secondary_muscles) === '[]');
+
 /* ---------- progress photos ---------- */
 
 check('the user id is read from the token', (await supa.userId()) === 'user-1');

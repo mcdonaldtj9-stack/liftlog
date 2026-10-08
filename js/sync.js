@@ -25,7 +25,7 @@ import * as supa from './supa.js';
    `dirty` is deliberately absent: it's local bookkeeping, not data. */
 const TABLES = [
   ['exercises', 'exercises',
-    ['id', 'name', 'name_key', 'muscle_group', 'tracks', 'is_custom', 'rest_seconds']],
+    ['id', 'name', 'name_key', 'muscle_group', 'secondary_muscles', 'tracks', 'is_custom', 'rest_seconds']],
   ['places', 'places',
     ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at', 'for_weight']],
   ['templates', 'templates',
@@ -58,6 +58,8 @@ const COMMON = ['created_at', 'updated_at', 'deleted'];
    these entirely, and a missing one must go up as 0, never as null. */
 const FLAGS = ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted',
   'for_weight', 'archived'];
+/* Arrays locally, jsonb arrays remotely, never null in either. */
+const LISTS = ['secondary_muscles'];
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -75,6 +77,8 @@ function toRow(record, columns) {
     if (FLAGS.includes(column)) {
       value = value ? 1 : 0;
     }
+    // jsonb NOT NULL remotely; exercises from before minor muscles have none.
+    if (LISTS.includes(column)) value = Array.isArray(value) ? value : [];
     row[column] = value;
   }
   // user_id and server_updated_at are the server's to set, never ours.
@@ -88,6 +92,9 @@ function fromRow(row, columns) {
   }
   for (const flag of FLAGS) {
     if (flag in record) record[flag] = record[flag] ? 1 : 0;
+  }
+  for (const list of LISTS) {
+    if (list in record) record[list] = Array.isArray(record[list]) ? record[list] : [];
   }
   record.dirty = 0;
   return record;

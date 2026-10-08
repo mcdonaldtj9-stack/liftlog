@@ -11,8 +11,9 @@ import * as exeditor from './exeditor.js';
 import {
   REGIONS, OTHER_REGION, filterByPlace, weeklySets, e1rmPerSession, bestByReps,
   meaningfulRepMaxes, e1rmChange, sessionsForExercise, exerciseSummaries,
-  placesForExercise, isWorkingSet,
+  placesForExercise, isWorkingSet, progressSeries, seriesChange, relativeSeries,
 } from './history.js';
+import { analyse } from './trend.js';
 import {
   DAY, INK, escapeHTML, shortDate, longDate, tightDomain, roundedTopRect, yGrid,
 } from './chart.js';
@@ -30,6 +31,9 @@ const REGION_COLORS = {
   [OTHER_REGION]: '#5b6574',
 };
 const STRENGTH_COLOR = '#3987e5';
+/* Same ink as the Weight tab's trend line, so bodyweight reads as bodyweight
+   wherever it appears. Its own chart, never a second axis on this one. */
+const BODYWEIGHT_COLOR = '#e8edf4';
 const STACK_ORDER = [...REGIONS, OTHER_REGION];
 
 const RANGES = [
@@ -45,6 +49,7 @@ const state = {
   query: '',
   placeFilter: null,     // exercise detail: null = all places
   range: '84',
+  metric: null,          // exercise detail: which progress chart; null = the first
   inspectWeek: null,
   inspectSession: null,
   exDraft: null,         // exercise being edited
@@ -56,10 +61,14 @@ const top = () => state.stack[state.stack.length - 1];
 /* ---------- data ---------- */
 
 async function load() {
-  const [sets, workouts, notes, exercises, places, templates] = await Promise.all([
+  const [sets, workouts, notes, exercises, places, templates, weights] = await Promise.all([
     store.allSets(), store.allWorkouts(), store.allNotes(),
-    store.listExercises(), store.listPlaces(), store.allTemplates(),
+    store.listExercises(), store.listPlaces(), store.allTemplates(), store.listWeights(),
   ]);
+  // The same scale-corrected trend the Weight tab draws, computed once.
+  const { trend } = analyse(weights.map((r) => ({
+    t: new Date(r.weighed_at).getTime(), lbs: r.lbs, scale: r.place_id || 'other',
+  })));
   state.data = {
     sets,
     notes,
@@ -68,6 +77,7 @@ async function load() {
     exercises,
     places,
     templatesById: new Map(templates.map((t) => [t.id, t])),
+    bodyweightTrend: trend,
   };
 }
 
@@ -239,8 +249,8 @@ function renderWeeklyChart() {
   return `
     <section class="hs-card">
       <h3 class="hs-title">Working sets per week</h3>
-      <p class="hs-sub">By primary muscle — a bench press counts as chest only.
-         This week is still in progress.</p>
+      <p class="hs-sub">Bars count each set once, by its major muscle. The table
+         adds half a set for every minor muscle. This week is still in progress.</p>
       <p class="hs-readout">${renderWeekReadout(weeks)}</p>
       <svg class="hs-chart" id="hsWeekly" width="${width}" height="${height}"
            viewBox="0 0 ${width} ${height}" role="img"
@@ -273,10 +283,12 @@ function renderMuscleTable(weeks) {
       || (prev.byMuscle.get(b) || 0) - (prev.byMuscle.get(a) || 0));
   if (!muscles.length) return '';
 
+  // Minor muscles earn half sets, so a count can end in .5.
+  const cell = (n) => (n ? (Number.isInteger(n) ? String(n) : n.toFixed(1)) : '—');
   const rows = muscles.map((m) => `
     <tr><th scope="row">${escapeHTML(m)}</th>
-        <td>${now.byMuscle.get(m) || '—'}</td>
-        <td>${prev.byMuscle.get(m) || '—'}</td></tr>`).join('');
+        <td>${cell(now.byMuscle.get(m))}</td>
+        <td>${cell(prev.byMuscle.get(m))}</td></tr>`).join('');
 
   return `
     <table class="hs-table">
@@ -318,15 +330,134 @@ function renderExerciseList() {
 
 /* ---------- exercise detail ---------- */
 
-function renderStrengthChart(points, prPoint) {
+/* ---------- progress charts ----------
+   Every exercise gets charts, chosen by how it's tracked. Peaks are lines on
+   a tight scale, because the change is the story; totals are bars from zero,
+   because a bar's length is its value. */
+
+const lbs = (v) => `${w(Math.round(v))} lbs`;
+const bigLbs = (v) => (v >= 10000 ? `${(v / 1000).toFixed(1)}k lbs` : `${Math.round(v).toLocaleString()} lbs`);
+const kTick = (v) => (v >= 1000 ? `${w(v / 1000)}k` : String(v));
+
+const METRICS = {
+  weight_reps: [
+    { key: 'e1rm', label: 'Est. 1RM', form: 'line', fmt: lbs,
+      sub: 'Best estimated one-rep max each session, from sets of up to 12 reps counting RPE.' },
+    { key: 'top', label: 'Top set', form: 'line', fmt: lbs,
+      sub: 'The heaviest working set each session.' },
+    { key: 'volume', label: 'Volume', form: 'bar', fmt: bigLbs, tick: kTick,
+      sub: 'Weight × reps added up across every working set, per session.' },
+    { key: 'relative', label: 'Relative', form: 'line', exact: true, needsBodyweight: true,
+      fmt: (v) => `${v.toFixed(2)}× BW`, tick: (v) => `${v.toFixed(2)}×`, domain: ratioDomain,
+      steady: 0.02,
+      sub: 'Estimated 1RM divided by your bodyweight trend on the day. On a cut, this climbs even while the 1RM holds.' },
+  ],
+  bodyweight_reps: [
+    { key: 'reps', label: 'Best set', form: 'line', fmt: (v) => `${v} reps`,
+      sub: 'The most reps in one working set each session.' },
+    { key: 'totalReps', label: 'Total reps', form: 'bar', fmt: (v) => `${v} reps`,
+      sub: 'Reps across every working set, per session.' },
+    { key: 'top', label: 'Most added', form: 'line', fmt: lbs, optional: true,
+      sub: 'The most weight added to bodyweight each session.' },
+  ],
+  time: [
+    { key: 'hold', label: 'Longest', form: 'line', fmt: mmss, tick: mmss,
+      sub: 'The longest working set each session.' },
+    { key: 'totalTime', label: 'Total time', form: 'bar', fmt: mmss, tick: mmss, step: timeStep,
+      sub: 'Time across every working set, per session.' },
+  ],
+};
+
+/* A gridline step for a bar scale from zero: 1, 2 or 5 times a power of ten,
+   aiming for about four lines whatever the size (12 reps or 18,000 lbs). */
+function barStep(max) {
+  const raw = Math.max(max, 1) / 4;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const unit = raw / power;
+  return (unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 5 ? 5 : 10) * power;
+}
+
+/* Gridlines for a ratio like 1.38× bodyweight: hundredths-sized steps that
+   still land on round numbers, about four lines across. */
+function ratioDomain(values) {
+  const min = Math.min(...values) - 0.02;
+  const max = Math.max(...values) + 0.02;
+  const step = [0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1].find((s) => (max - min) / s <= 5) || 1;
+  return {
+    lo: Math.floor(min / step) * step,
+    hi: Math.ceil(max / step) * step,
+    step,
+  };
+}
+
+/* Clock-friendly gridlines for seconds: 0:30, 1:00, 2:00, never 0:50. */
+function timeStep(max) {
+  return [15, 30, 60, 120, 300, 600, 1200, 1800, 3600].find((s) => max / s <= 5) || 3600;
+}
+
+function inRange(points) {
   const range = RANGES.find((r) => r.key === state.range);
-  const now = Date.now();
-  const shown = range.days ? points.filter((p) => p.t >= now - range.days * DAY) : points;
+  return range.days ? points.filter((p) => p.t >= Date.now() - range.days * DAY) : points;
+}
+
+function renderProgressChart(points, metric, bestPoint) {
+  const shown = inRange(points);
   if (shown.length < 2) {
     return `<p class="hint">${shown.length
-      ? 'One qualifying session so far — the chart starts at two.'
+      ? 'One session so far — the chart starts at two.'
       : 'No qualifying sets in this range.'}</p>`;
   }
+  return metric.form === 'bar'
+    ? renderBarChart(shown, metric, bestPoint)
+    : renderLineChart(shown, metric, bestPoint);
+}
+
+/* Sessions side by side, evenly spaced: the gaps between sessions aren't the
+   point of a per-session total, and bars on a time axis would collide. */
+function renderBarChart(shown, metric, bestPoint) {
+  const width = Math.max(280, root?.clientWidth || 360);
+  const height = 180;
+  const pad = { top: 12, right: 10, bottom: 24, left: 44 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  const step = (metric.step || barStep)(Math.max(...shown.map((p) => p.value)));
+  const hi = Math.ceil(Math.max(...shown.map((p) => p.value)) / step) * step;
+  const y = (v) => pad.top + (1 - v / hi) * plotH;
+  const band = plotW / shown.length;
+  const barW = Math.max(3, Math.min(22, band - 2));   // a 2px gap between bars
+
+  const bars = shown.map((p, i) => {
+    const x = pad.left + band * i + (band - barW) / 2;
+    const on = state.inspectSession === p.workoutId;
+    // Only the tapped session stands out; until then every bar is full.
+    const dim = state.inspectSession !== null && !on && shown.some((q) => q.workoutId === state.inspectSession);
+    return `
+      <path class="hs-bar ${on ? 'is-on' : ''}" d="${roundedTopRect(x, y(p.value), barW, y(0) - y(p.value))}"
+            fill="${STRENGTH_COLOR}" opacity="${dim ? 0.45 : 1}"/>
+      <rect class="hs-hit" data-session="${p.workoutId}" x="${pad.left + band * i}" y="${pad.top}"
+            width="${band}" height="${plotH}" fill="transparent"/>`;
+  }).join('');
+
+  return `
+    <svg class="hs-chart" id="hsProgress" width="${width}" height="${height}"
+         viewBox="0 0 ${width} ${height}" role="img"
+         aria-label="${escapeHTML(metric.label)} per session; every session is listed below">
+      ${yGrid({ lo: 0, hi, step, y, left: pad.left, right: width - pad.right, format: metric.tick || String })}
+      <line x1="${pad.left}" x2="${width - pad.right}" y1="${y(0)}" y2="${y(0)}"
+            stroke="${INK.axis}" stroke-width="1"/>
+      ${bars}
+      <text class="ch-tick" x="${pad.left}" y="${height - 6}" text-anchor="start">${shortDate(shown[0].t)}</text>
+      <text class="ch-tick" x="${width - pad.right}" y="${height - 6}" text-anchor="end">${shortDate(shown[shown.length - 1].t)}</text>
+    </svg>`;
+}
+
+function renderLineChart(shown, metric, prPoint) {
+  const points = shown.map((p) => ({ ...p, e1rm: p.value }));
+  return renderStrengthChart(points, prPoint, metric);
+}
+
+function renderStrengthChart(shown, prPoint, metric) {
 
   const width = Math.max(280, root?.clientWidth || 360);
   const height = 180;
@@ -336,7 +467,9 @@ function renderStrengthChart(points, prPoint) {
 
   const start = shown[0].t;
   const end = Math.max(shown[shown.length - 1].t, start + DAY);
-  const { lo, hi, step } = tightDomain(shown.map((p) => p.e1rm), { air: 3 });
+  const { lo, hi, step } = metric?.domain
+    ? metric.domain(shown.map((p) => p.e1rm))
+    : tightDomain(shown.map((p) => p.e1rm), { air: metric?.key === 'reps' ? 1 : 3 });
   const x = (t) => pad.left + ((t - start) / (end - start)) * plotW;
   const y = (v) => pad.top + (1 - (v - lo) / (hi - lo)) * plotH;
 
@@ -352,10 +485,10 @@ function renderStrengthChart(points, prPoint) {
   }).join('');
 
   return `
-    <svg class="hs-chart" id="hsStrength" width="${width}" height="${height}"
+    <svg class="hs-chart" id="hsProgress" width="${width}" height="${height}"
          viewBox="0 0 ${width} ${height}" role="img"
-         aria-label="Estimated one-rep max per session; every session is listed below">
-      ${yGrid({ lo, hi, step, y, left: pad.left, right: width - pad.right })}
+         aria-label="${escapeHTML(metric?.label || 'Progress')} per session; every session is listed below">
+      ${yGrid({ lo, hi, step, y, left: pad.left, right: width - pad.right, format: metric?.tick || String })}
       <path d="${path}" fill="none" stroke="${STRENGTH_COLOR}" stroke-width="2"
             stroke-linejoin="round" stroke-linecap="round"/>
       ${dots}
@@ -393,37 +526,7 @@ function renderExercise(exerciseId) {
       ${latest.note ? `<p class="hs-note">“${escapeHTML(latest.note)}”</p>` : ''}
     </section>` : '<p class="hint">Nothing logged here yet.</p>';
 
-  let strength = '';
-  if (isWeighted) {
-    const points = e1rmPerSession(sets, workoutsById);
-    const prPoint = points.length ? points.reduce((a, b) => (b.e1rm > a.e1rm ? b : a)) : null;
-    const change = e1rmChange(points, { days: 84 });
-    const reps = meaningfulRepMaxes(bestByReps(sets));
-
-    const changeText = change && change.days >= 14
-      ? (Math.abs(change.change) < 2 ? 'holding steady' : `${change.change > 0 ? '↑' : '↓'} ${Math.round(Math.abs(change.change))} over ${Math.round(change.days / 7)} weeks`)
-      : '';
-
-    const repRows = [...reps.entries()].map(([n, set]) => `
-      <li><span class="hs-rm">${n}RM</span><strong>${w(set.weight)}</strong>
-          <span class="hs-when">${escapeHTML(shortDate(new Date(set.created_at).getTime()))}</span></li>`).join('');
-
-    strength = `
-      <section class="hs-card">
-        <p class="hs-kicker">Estimated 1RM</p>
-        <p class="hs-hero">${prPoint ? Math.round(prPoint.e1rm) : '—'}<span> lbs best</span></p>
-        ${changeText ? `<p class="hs-change">${escapeHTML(changeText)}</p>` : ''}
-        <div class="hs-filter hs-range">
-          ${RANGES.map((r) => `<button class="chip ${state.range === r.key ? 'is-on' : ''}"
-            data-act="hs-range" data-range="${r.key}">${r.label}</button>`).join('')}
-        </div>
-        <p class="hs-readout">${renderSessionReadout(points, exercise)}</p>
-        ${renderStrengthChart(points, prPoint)}
-        <p class="hs-sub">From sets of up to 12 reps counting RPE; warmups, drops
-           and F sets are left out. The ringed point is your best.</p>
-        ${repRows ? `<h3 class="section-label">Rep maxes</h3><ul class="hs-rms">${repRows}</ul>` : ''}
-      </section>`;
-  }
+  const strength = renderProgress(exercise, sets, workoutsById);
 
   const older = sessions.slice(1).map((s) => `
     <li class="hs-session">
@@ -443,11 +546,134 @@ function renderExercise(exerciseId) {
     ${older ? `<h3 class="section-label">Earlier sessions</h3><ul class="hs-sessions">${older}</ul>` : ''}`;
 }
 
-function renderSessionReadout(points, exercise) {
+/* The progress card: pick a chart, see your best, how it's moved, and any
+   session by tapping it. */
+function renderProgress(exercise, sets, workoutsById) {
+  const tracks = METRICS[exercise.tracks] ? exercise.tracks : 'weight_reps';
+  const trend = state.data.bodyweightTrend;
+  const seriesFor = (metric) => (metric.key === 'relative'
+    ? relativeSeries(progressSeries(sets, workoutsById, 'e1rm'), trend)
+    : progressSeries(sets, workoutsById, metric.key));
+  const series = METRICS[tracks]
+    .filter((metric) => !metric.needsBodyweight || trend.length)
+    .map((metric) => ({ metric, points: seriesFor(metric) }))
+    // An optional chart only appears once there's something to draw.
+    .filter(({ metric, points }) => !metric.optional || points.length >= 2);
+  if (!series.some(({ points }) => points.length)) return '';
+
+  const chosen = series.find((s) => s.metric.key === state.metric) || series[0];
+  const { metric, points } = chosen;
+  const shown = inRange(points);
+  const bestPoint = shown.length ? shown.reduce((a, b) => (b.value > a.value ? b : a)) : null;
+  const allTimeBest = points.length ? points.reduce((a, b) => (b.value > a.value ? b : a)) : null;
+
+  const round = (v) => (metric.exact ? v : Math.round(v));
+  const change = seriesChange(points, { days: 84 });
+  const steady = metric.steady ?? (metric.key === 'e1rm' || metric.key === 'top' ? 2 : 0);
+  const changeText = change && change.days >= 14
+    ? (Math.abs(change.change) <= steady
+      ? 'holding steady over 12 weeks'
+      : `${change.change > 0 ? '↑' : '↓'} ${metric.fmt(Math.abs(round(change.change)))} over ${Math.round(change.days / 7)} weeks`)
+    : '';
+
+  const tabs = series.length > 1 ? `
+    <div class="hs-filter hs-metrics" role="tablist">
+      ${series.map(({ metric: m }) => `<button class="chip ${m.key === metric.key ? 'is-on' : ''}"
+        role="tab" aria-selected="${m.key === metric.key}"
+        data-act="hs-metric" data-metric="${m.key}">${escapeHTML(m.label)}</button>`).join('')}
+    </div>` : '';
+
+  let repMaxes = '';
+  if (exercise.tracks === 'weight_reps') {
+    const reps = meaningfulRepMaxes(bestByReps(sets));
+    const repRows = [...reps.entries()].map(([n, set]) => `
+      <li><span class="hs-rm">${n}RM</span><strong>${w(set.weight)}</strong>
+          <span class="hs-when">${escapeHTML(shortDate(new Date(set.created_at).getTime()))}</span></li>`).join('');
+    if (repRows) repMaxes = `<h3 class="section-label">Rep maxes</h3><ul class="hs-rms">${repRows}</ul>`;
+  }
+
+  return `
+    <section class="hs-card">
+      ${tabs}
+      <p class="hs-kicker">${escapeHTML(metric.label)} · best</p>
+      <p class="hs-hero">${allTimeBest ? escapeHTML(metric.fmt(round(allTimeBest.value))) : '—'}</p>
+      ${changeText ? `<p class="hs-change">${escapeHTML(changeText)}</p>` : ''}
+      <div class="hs-filter hs-range">
+        ${RANGES.map((r) => `<button class="chip ${state.range === r.key ? 'is-on' : ''}"
+          data-act="hs-range" data-range="${r.key}">${r.label}</button>`).join('')}
+      </div>
+      <p class="hs-readout">${renderSessionReadout(points, exercise, metric)}</p>
+      ${renderProgressChart(points, metric, bestPoint)}
+      ${exercise.tracks === 'weight_reps' && metric.form === 'line' ? renderBodyweightStrip(inRange(points), trend) : ''}
+      <p class="hs-sub">${escapeHTML(metric.sub)} Warmups, drops and F sets are left out.${
+        metric.form === 'line' ? ' The ringed point is the best in view.' : ''}</p>
+      ${repMaxes}
+    </section>`;
+}
+
+function renderSessionReadout(points, exercise, metric) {
   const point = points.find((p) => p.workoutId === state.inspectSession);
-  if (!point) return 'Tap a point to see that session.';
-  return `<strong>${escapeHTML(longDate(point.t))}</strong> · e1RM <strong>${Math.round(point.e1rm)}</strong>
-    · from ${escapeHTML(compactSet(point.set, exercise))}`;
+  if (!point) return 'Tap a session on the chart to see it.';
+  const value = metric.exact ? point.value : Math.round(point.value);
+  let detail = point.set
+    ? `from ${escapeHTML(compactSet(point.set, exercise))}`
+    : `${point.sets} working ${point.sets === 1 ? 'set' : 'sets'}`;
+  if (metric.key === 'relative') {
+    detail = `e1RM ${Math.round(point.e1rm)} at ${point.bodyweight.toFixed(1)} lbs`;
+  } else if (exercise.tracks === 'weight_reps') {
+    const bw = relativeSeries([point], state.data.bodyweightTrend)[0]?.bodyweight;
+    if (bw) detail += ` · ${bw.toFixed(1)} lbs bodyweight`;
+  }
+  return `<strong>${escapeHTML(longDate(point.t))}</strong> · ${escapeHTML(metric.label)}
+    <strong>${escapeHTML(metric.fmt(value))}</strong> · ${detail}`;
+}
+
+/* Bodyweight under the strength chart: same dates, same left and right
+   edges, its own scale. Two charts stacked rather than one with two axes, so
+   neither line can be made to look like it's chasing the other. */
+function renderBodyweightStrip(shown, trend) {
+  if (shown.length < 2 || !trend.length) return '';
+  const start = shown[0].t;
+  const end = Math.max(shown[shown.length - 1].t, start + DAY);
+  // The trend inside the window, plus its value at each edge so the line
+  // spans the same width as the strength line above it.
+  const inside = trend.filter((p) => p.t > start && p.t < end);
+  const edge = (t) => {
+    const before = [...trend].reverse().find((p) => p.t <= t);
+    return before ? { t, value: before.value } : null;
+  };
+  const line = [edge(start), ...inside, edge(end)].filter(Boolean);
+  if (line.length < 2) return '';
+
+  const width = Math.max(280, root?.clientWidth || 360);
+  const height = 92;
+  const pad = { top: 10, right: 14, bottom: 8, left: 40 };   // matches the chart above
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const { lo, hi, step } = tightDomain(line.map((p) => p.value), { air: 1 });
+  const x = (t) => pad.left + ((t - start) / (end - start)) * plotW;
+  const y = (v) => pad.top + (1 - (v - lo) / (hi - lo)) * plotH;
+  const path = line.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+
+  const first = line[0].value;
+  const last = line[line.length - 1].value;
+  const moved = last - first;
+  const summary = `${first.toFixed(1)} → ${last.toFixed(1)} lbs${
+    Math.abs(moved) >= 0.1 ? ` (${moved > 0 ? '+' : '−'}${Math.abs(moved).toFixed(1)})` : ''}`;
+  const onPoint = shown.find((p) => p.workoutId === state.inspectSession);
+
+  return `
+    <div class="hs-bw">
+      <p class="hs-bw-head"><span>Bodyweight trend</span><strong>${escapeHTML(summary)}</strong></p>
+      <svg class="hs-chart" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
+           role="img" aria-label="Bodyweight trend over the same dates, ${escapeHTML(summary)}">
+        ${yGrid({ lo, hi, step: Math.max(step, (hi - lo) / 2), y, left: pad.left, right: width - pad.right })}
+        ${onPoint ? `<line x1="${x(onPoint.t)}" x2="${x(onPoint.t)}" y1="${pad.top}" y2="${height - pad.bottom}"
+              stroke="${INK.cross}" stroke-width="1" stroke-dasharray="3 3"/>` : ''}
+        <path d="${path}" fill="none" stroke="${BODYWEIGHT_COLOR}" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+    </div>`;
 }
 
 /* ---------- session detail ---------- */
@@ -635,6 +861,7 @@ async function onClick(event) {
 
     case 'hs-exercise':
       state.placeFilter = null;
+      state.metric = null;
       push({ view: 'exercise', id: trigger.dataset.id });
       return render();
     case 'hs-session':
@@ -651,6 +878,9 @@ async function onClick(event) {
       return render();
     case 'hs-range':
       state.range = trigger.dataset.range;
+      return render();
+    case 'hs-metric':
+      state.metric = trigger.dataset.metric;
       return render();
   }
 }

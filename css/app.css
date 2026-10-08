@@ -1526,3 +1526,27 @@ body.ph-viewing { overflow: hidden; }
 .hist-sets li.is-drop { padding-left: 6px; }
 .hist-n { display: inline-block; min-width: 1.4em; color: var(--muted); font-weight: 650; }
 .hist-pr { margin-left: 4px; color: #e8b84a; font-size: 10px; font-weight: 700; }
+
+/* Minor-muscle chips: on means "also works this", so a quieter on-state than
+   the major muscle's solid fill. */
+.chip-minor.is-on {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Progress chart picker sits above the headline number. */
+.hs-metrics { margin-bottom: 14px; }
+.hs-bar { transition: opacity 0.15s; }
+
+/* Bodyweight strip under a strength chart. */
+.hs-bw { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.hs-bw-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.hs-bw-head strong { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }

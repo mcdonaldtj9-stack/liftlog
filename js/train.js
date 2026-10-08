@@ -9,7 +9,7 @@ import {
   checkSet, suggestWeight, DEFAULT_TARGET_RPE, suggestProgression, detectPR,
 } from './rules.js';
 import * as exeditor from './exeditor.js';
-import { MUSCLE_GROUPS } from './seed.js';
+import { MUSCLE_GROUPS, minorMuscles } from './seed.js';
 import * as geo from './geo.js';
 
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
@@ -500,7 +500,7 @@ function renderPicker() {
     <li>
       <button class="pick-row" data-act="choose" data-ex="${e.id}">
         <span class="pick-name">${escapeHTML(e.name)}</span>
-        <span class="pick-group">${escapeHTML(e.muscle_group)}</span>
+        <span class="pick-group">${escapeHTML([e.muscle_group, ...minorMuscles(e)].join(' · '))}</span>
       </button>
     </li>`).join('');
 

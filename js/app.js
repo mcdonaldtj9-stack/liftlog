@@ -12,7 +12,7 @@ import * as store from './store.js';
 import * as push from './push.js';
 import { DEFAULT_GOAL, validateGoal, plannedRate } from './goal.js';
 
-const BUILD = '27';
+const BUILD = '30';
 
 const views = {
   train:    { el: document.getElementById('view-train'),    title: 'Train' },
