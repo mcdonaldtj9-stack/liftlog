@@ -1494,6 +1494,13 @@ body.ph-viewing { overflow: hidden; }
 }
 .hist-card:not(.is-back) { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .hist-front strong { color: var(--text); font-weight: 650; }
+.hist-front { min-width: 0; }
+.hist-line { display: block; }
+.hist-line + .hist-line { margin-top: 2px; }
+.hist-new { color: var(--text); font-weight: 600; }
+.hist-other { font-size: 12px; }
+.hist-other strong { color: var(--muted); }
+.hist-where.is-other { font-style: italic; }
 .hist-hint { flex: none; color: var(--accent); font-size: 12px; font-weight: 600; }
 .hist-card.is-back .hist-hint { display: block; margin-top: 6px; text-align: center; }
 .hist-card.is-flipping { animation: hist-flip 0.32s ease-out; }

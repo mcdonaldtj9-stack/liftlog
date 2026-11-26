@@ -464,6 +464,52 @@ check('an exercise never done has no history',
   (await store.recentSessionsFor(custom.id, { excludeWorkoutId: today.id })).length === 0);
 await store.discardWorkout(today);
 
+// ---------- history at this gym vs anywhere ----------
+
+const gymA = await store.createPlace('Gym A');
+const gymB = await store.createPlace('Gym B');
+const cable = await store.createExercise({ name: 'Cable Fly' });
+async function sessionAt(place, date, sets) {
+  const w = await store.startWorkout();
+  await store.setWorkoutPlace(w, place?.id || null);
+  await db.put('workouts', { ...(await db.get('workouts', w.id)), started_at: date });
+  for (const set of sets) {
+    await store.addSet({ workout_id: w.id, exercise_id: cable.id, ...set });
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  await store.finishWorkout(await db.get('workouts', w.id));
+  return w;
+}
+const a1 = await sessionAt(gymA, '2026-05-01T10:00:00.000Z', [{ weight: 40, reps: 12 }]);
+const a2 = await sessionAt(gymA, '2026-05-03T10:00:00.000Z', [{ weight: 45, reps: 12 }, { weight: 20, reps: 15, is_warmup: 1 }]);
+const a3 = await sessionAt(gymA, '2026-05-05T10:00:00.000Z', [{ weight: 50, reps: 10 }]);
+const b1 = await sessionAt(gymB, '2026-05-07T10:00:00.000Z', [{ weight: 90, reps: 10 }]);
+
+check('prefill comes from this gym even when another gym was more recent',
+  (await store.lastSetFor(cable.id, { placeId: gymA.id }))?.weight === 50);
+check('without a place, prefill is simply the latest anywhere',
+  (await store.lastSetFor(cable.id))?.weight === 90);
+check("typo baseline is this gym's, so a different cable stack does not prompt",
+  (await store.lastWorkSetFor(cable.id, { placeId: gymA.id }))?.weight === 50);
+const gymC = await store.createPlace('Gym C');
+check('a gym with no history falls back to anywhere',
+  (await store.lastSetFor(cable.id, { placeId: gymC.id }))?.weight === 90);
+
+const mixed = await store.recentSessionsFor(cable.id, { placeId: gymA.id, limit: 3 });
+check("the latest session elsewhere leads, then this gym's newest",
+  mixed.map((s) => s.workout.id).join() === [b1.id, a3.id, a2.id].join(),
+  mixed.map((s) => s.workout.started_at).join());
+check('sessions are marked here or not', mixed.map((s) => s.here).join() === 'false,true,true');
+const atB = await store.recentSessionsFor(cable.id, { placeId: gymB.id, limit: 3 });
+check("when the latest was here, only this gym's sessions show",
+  atB.length === 1 && atB[0].workout.id === b1.id && atB[0].here === true);
+const atC = await store.recentSessionsFor(cable.id, { placeId: gymC.id, limit: 3 });
+check('nothing at this gym shows the latest anywhere, flagged as elsewhere',
+  atC.length === 3 && atC.every((s) => s.here === false) && atC[0].workout.id === b1.id);
+check('no place behaves as before',
+  (await store.recentSessionsFor(cable.id, { limit: 3 })).map((s) => s.here).join() === ',,');
+void a1;
+
 // ---------- progress photos ----------
 
 const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;

@@ -511,9 +511,13 @@ export async function lastSessionSets(exerciseId, options = {}) {
 
 /* The most recent earlier sessions of an exercise, newest first, each with
    every set in the order it was logged — warmups and drops included, since
-   this is for reading back exactly what happened. Any gym counts: the card
-   says which one each session was at. */
-export async function recentSessionsFor(exerciseId, { excludeWorkoutId = null, limit = 3 } = {}) {
+   this is for reading back exactly what happened.
+
+   With a placeId, sessions at that gym come first in priority (machines and
+   cable stacks differ), but if the latest session anywhere was at another gym
+   it leads the list too, so neither picture goes missing. Each session is
+   marked `here` (null when no place is set). */
+export async function recentSessionsFor(exerciseId, { excludeWorkoutId = null, limit = 3, placeId = null } = {}) {
   const sets = (await db.getAllByIndex('sets', 'by_exercise', exerciseId)).filter(db.isLive);
   const workouts = new Map((await db.getAll('workouts')).filter(db.isLive).map((w) => [w.id, w]));
   const byWorkout = new Map();
@@ -522,13 +526,22 @@ export async function recentSessionsFor(exerciseId, { excludeWorkoutId = null, l
     if (!byWorkout.has(set.workout_id)) byWorkout.set(set.workout_id, []);
     byWorkout.get(set.workout_id).push(set);
   }
-  return [...byWorkout.entries()]
-    .map(([id, rows]) => ({
-      workout: workouts.get(id),
-      sets: rows.sort((a, b) => a.created_at.localeCompare(b.created_at)),
-    }))
-    .sort((a, b) => b.workout.started_at.localeCompare(a.workout.started_at))
-    .slice(0, limit);
+  const all = [...byWorkout.entries()]
+    .map(([id, rows]) => {
+      const workout = workouts.get(id);
+      return {
+        workout,
+        here: placeId ? workout.place_id === placeId : null,
+        sets: rows.sort((a, b) => a.created_at.localeCompare(b.created_at)),
+      };
+    })
+    .sort((a, b) => b.workout.started_at.localeCompare(a.workout.started_at));
+  if (!placeId) return all.slice(0, limit);
+
+  const here = all.filter((s) => s.here);
+  if (!here.length) return all.slice(0, limit);
+  if (all[0].here) return here.slice(0, limit);
+  return [all[0], ...here.slice(0, limit - 1)];
 }
 
 /* Everything logged before now, as the bar a new set has to clear. */
@@ -840,18 +853,18 @@ export async function deleteSet(set) {
   return next;
 }
 
+const newestFirst = (a, b) =>
+  b.created_at.localeCompare(a.created_at) ||
+  (b.set_index - a.set_index) ||
+  b.id.localeCompare(a.id);
+
 /* Most recent live set for an exercise, for prefilling. Includes sets logged
    earlier in the current workout — "same as last time" is usually what you want
-   between sets. */
-export async function lastSetFor(exerciseId) {
-  const rows = await db.getAllByIndex('sets', 'by_exercise', exerciseId);
-  const live = rows.filter(db.isLive);
-  if (!live.length) return null;
-  live.sort((a, b) =>
-    b.created_at.localeCompare(a.created_at) ||
-    (b.set_index - a.set_index) ||
-    b.id.localeCompare(a.id));
-  return live[0];
+   between sets. With a placeId, the last set at that gym wins when there is
+   one, since a cable stack at one gym isn't the same weight at another. */
+export async function lastSetFor(exerciseId, { placeId = null } = {}) {
+  const { sets } = await workingHistory(exerciseId, { placeId });
+  return sets.length ? [...sets].sort(newestFirst)[0] : null;
 }
 
 /* The last set that counts as a working set, used as the baseline for the
@@ -859,17 +872,11 @@ export async function lastSetFor(exerciseId) {
    excluded: comparing a work set against a warmup would prompt every time you
    finish warming up, and a failed 245 should not make 250 look reasonable.
    Sets from the current session are included, so a within-session 185 -> 195
-   compares against the 185 you just did. */
-export async function lastWorkSetFor(exerciseId) {
-  const rows = await db.getAllByIndex('sets', 'by_exercise', exerciseId);
-  const working = rows.filter((s) =>
-    db.isLive(s) && !s.is_warmup && !s.is_dropset && !s.failed);
-  if (!working.length) return null;
-  working.sort((a, b) =>
-    b.created_at.localeCompare(a.created_at) ||
-    (b.set_index - a.set_index) ||
-    b.id.localeCompare(a.id));
-  return working[0];
+   compares against the 185 you just did. Same gym first, like lastSetFor. */
+export async function lastWorkSetFor(exerciseId, { placeId = null } = {}) {
+  const { sets } = await workingHistory(exerciseId, { placeId });
+  const working = sets.filter((s) => !s.is_warmup && !s.is_dropset && !s.failed);
+  return working.length ? working.sort(newestFirst)[0] : null;
 }
 
 /* Exercise ids ordered by how recently you've used them, for the picker. */

@@ -581,30 +581,59 @@ function renderRestBar(exercise) {
     </div>${warmupsDone}${offer}`;
 }
 
-/* "Last time" on the front; tap and it flips to every set of the last few
-   sessions, side by side, so the whole picture is there between sets. */
+const shortPlace = (place) => place.name.replace('Planet Fitness — ', 'PF ');
+
+/* The set that sums up a session at a glance: its last working set. */
+function headlineSet(sets) {
+  const work = sets.filter((s) => !s.is_warmup && !s.is_dropset);
+  return (work.length ? work : sets).at(-1);
+}
+
+/* The front shows the last set at this gym and, when the latest session was
+   at another gym, that one too — machines and cable stacks differ, so both
+   numbers matter. Tap and it flips to every set of the last few sessions,
+   side by side, so the whole picture is there between sets. */
 function renderHistoryCard(exercise) {
   const sessions = state.sheet.history || [];
   const last = state.sheet.last;
   if (!sessions.length || !last) return '<p class="last-line">First time logging this one.</p>';
 
   const spin = state.sheet.flipAnim ? ' is-flipping' : '';
+  const place = state.place;
+  const anyHere = sessions.some((s) => s.here);
+  const latest = sessions[0];
+  const elsewhere = latest && latest.here === false ? latest : null;
+  // `last` only belongs to this gym if there's history here or it's from today.
+  const lastIsHere = last && place && (anyHere || last.workout_id === state.workout.id);
+
   if (!state.historyFlipped) {
+    const lines = [];
+    if (!place || !elsewhere) {
+      const label = place && anyHere ? `Last time at ${escapeHTML(shortPlace(place))}` : 'Last time';
+      lines.push(`<span class="hist-line">${label}: <strong>${escapeHTML(describeSet(last, exercise))}</strong></span>`);
+    } else {
+      lines.push(lastIsHere
+        ? `<span class="hist-line">Last time at ${escapeHTML(shortPlace(place))}: <strong>${escapeHTML(describeSet(last, exercise))}</strong></span>`
+        : `<span class="hist-line hist-new">First time at ${escapeHTML(shortPlace(place))}</span>`);
+      const there = state.places.find((p) => p.id === elsewhere.workout.place_id);
+      const where = there ? shortPlace(there) : 'No location';
+      lines.push(`<span class="hist-line hist-other">${escapeHTML(where)}, ${escapeHTML(formatDate(elsewhere.workout.started_at))}: <strong>${escapeHTML(describeSet(headlineSet(elsewhere.sets), exercise))}</strong></span>`);
+    }
     return `
       <button class="hist-card${spin}" data-act="flip-history" aria-expanded="false">
-        <span class="hist-front">Last time: <strong>${escapeHTML(describeSet(last, exercise))}</strong></span>
+        <span class="hist-front">${lines.join('')}</span>
         <span class="hist-hint">Last ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'} ↻</span>
       </button>`;
   }
 
-  const columns = sessions.map(({ workout, sets }) => {
+  const columns = sessions.map(({ workout, sets, here }) => {
     const labels = setLabels(sets);
-    const place = state.places.find((p) => p.id === workout.place_id);
-    const where = place ? place.name.replace('Planet Fitness — ', 'PF ') : '';
+    const at = state.places.find((p) => p.id === workout.place_id);
+    const where = at ? shortPlace(at) : '';
     return `
       <div class="hist-col">
         <div class="hist-when">${escapeHTML(formatDate(workout.started_at))}</div>
-        ${where ? `<div class="hist-where">${escapeHTML(where)}</div>` : ''}
+        ${where ? `<div class="hist-where${here === false ? ' is-other' : ''}">${escapeHTML(where)}</div>` : ''}
         <ol class="hist-sets">${sets.map((set, i) => `
           <li class="${set.is_warmup ? 'is-warmup' : ''}${set.is_dropset ? ' is-drop' : ''}">
             <span class="hist-n">${labels[i]}</span>${escapeHTML(describeSet(set, exercise))}${
@@ -895,11 +924,53 @@ function onVisible() {
 
 /* ---------- draft handling ---------- */
 
+/* Everything on the log sheet that depends on which gym you're at. Kept in
+   one place so a location change mid-sheet (GPS landing late, a tap on the
+   suggestion) can reload it. */
+async function loadPlaceContext(exerciseId, target) {
+  const exercise = exerciseById(exerciseId);
+  const placeId = state.workout.place_id;
+  const last = await store.lastSetFor(exerciseId, { placeId });
+  const reference = await store.lastWorkSetFor(exerciseId, { placeId });
+
+  // "Go up next time": judged on the most recent earlier session, at this gym
+  // where there is history here, since machines differ between gyms.
+  const lastSession = exercise?.tracks === 'weight_reps'
+    ? await store.lastSessionSets(exerciseId, { placeId, excludeWorkoutId: state.workout.id })
+    : null;
+  const progression = suggestProgression(lastSession?.sets, target, exercise);
+
+  const history = await store.recentSessionsFor(exerciseId, {
+    excludeWorkoutId: state.workout.id, limit: 3, placeId,
+  });
+  const priorNote = await store.lastNoteFor(exerciseId, {
+    placeId, excludeWorkoutId: state.workout.id,
+  });
+  return { last, reference, progression, history, priorNote };
+}
+
+/* The gym changed while a log sheet is open: reload what depends on it, and
+   move the prefilled weight only if you haven't touched it. */
+async function reloadSheetForPlace() {
+  if (state.sheet?.type !== 'log' || !state.workout) return;
+  readSheetInputs();
+  const sheet = state.sheet;
+  const oldPrefill = sheet.last?.weight;
+  const context = await loadPlaceContext(sheet.exerciseId, sheet.target);
+  if (state.sheet !== sheet) return;
+  Object.assign(sheet, context);
+  const untouched = sheet.draft.weight === oldPrefill;
+  const startedHere = state.sets.some((s) => s.exercise_id === sheet.exerciseId);
+  if (untouched && !startedHere && context.last?.weight != null) {
+    sheet.draft.weight = context.last.weight;
+  }
+}
+
 async function openLogSheet(exerciseId) {
   const exercise = exerciseById(exerciseId);
-  const last = await store.lastSetFor(exerciseId);
-  const reference = await store.lastWorkSetFor(exerciseId);
   const target = state.targets.get(exerciseId) || null;
+  const { last, reference, progression, history, priorNote } =
+    await loadPlaceContext(exerciseId, target);
 
   // A suggestion only makes sense for weight-based work with recent history.
   const e1rm = exercise?.tracks === 'weight_reps'
@@ -908,25 +979,9 @@ async function openLogSheet(exerciseId) {
   const targetReps = target?.reps ?? null;
   const suggested = suggestWeight(e1rm, targetReps);
 
-  // "Go up next time": judged on the most recent earlier session, at this gym
-  // where there is history here, since machines differ between gyms.
-  const lastSession = exercise?.tracks === 'weight_reps'
-    ? await store.lastSessionSets(exerciseId, {
-      placeId: state.workout.place_id, excludeWorkoutId: state.workout.id,
-    })
-    : null;
-  const progression = suggestProgression(lastSession?.sets, target, exercise);
-
   // Has anything been logged for this exercise in this session yet?
   const startedHere = state.sets.some((s) => s.exercise_id === exerciseId);
   const note = await store.getNote(state.workout.id, exerciseId);
-  const history = await store.recentSessionsFor(exerciseId, {
-    excludeWorkoutId: state.workout.id, limit: 3,
-  });
-  const priorNote = await store.lastNoteFor(exerciseId, {
-    placeId: state.workout.place_id,
-    excludeWorkoutId: state.workout.id,
-  });
 
   state.sheet = {
     type: 'log',
@@ -1105,8 +1160,8 @@ async function logCurrent({ isDrop, confirmed = false }) {
 
   await saveNoteNow();
   state.sets = await store.setsForWorkout(state.workout.id);
-  state.sheet.last = await store.lastSetFor(exerciseId);
-  state.sheet.reference = await store.lastWorkSetFor(exerciseId);
+  state.sheet.last = await store.lastSetFor(exerciseId, { placeId: state.workout.place_id });
+  state.sheet.reference = await store.lastWorkSetFor(exerciseId, { placeId: state.workout.place_id });
   state.sheet.draft.failed = 0;
 
   if (values.is_warmup) {
@@ -1164,8 +1219,8 @@ async function finishEditing() {
   if (state.sheet.savedDraft) state.sheet.draft = state.sheet.savedDraft;
   state.sheet.savedDraft = null;
   state.sets = await store.setsForWorkout(state.workout.id);
-  state.sheet.last = await store.lastSetFor(state.sheet.exerciseId);
-  state.sheet.reference = await store.lastWorkSetFor(state.sheet.exerciseId);
+  state.sheet.last = await store.lastSetFor(state.sheet.exerciseId, { placeId: state.workout.place_id });
+  state.sheet.reference = await store.lastWorkSetFor(state.sheet.exerciseId, { placeId: state.workout.place_id });
   render();
 }
 
@@ -1227,7 +1282,7 @@ async function onClick(event) {
       await refresh();
       state.sheet = { type: 'picker', query: '' };
       render();
-      detectForSession({ explicit: false });
+      detectForSession();
       return;
 
     case 'pick':
@@ -1263,6 +1318,7 @@ async function onClick(event) {
       state.placeSuggestion = null;
       state.placeDetected = true;
       await refresh();
+      await reloadSheetForPlace();
       return render();
 
     case 'geo-dismiss':
@@ -1355,8 +1411,9 @@ async function onClick(event) {
       resetDetection();
       await refresh();
       render();
-      // A routine tied to a gym is an explicit choice: GPS may suggest, not override.
-      detectForSession({ explicit: Boolean(state.workout.template_id && state.workout.place_id) });
+      // A routine's gym is only a default: the same Push day gets run at more
+      // than one gym, so a confident GPS match still wins.
+      detectForSession();
       return;
     }
 
@@ -1690,10 +1747,11 @@ function renderIfIdle() {
 /* Runs after a session starts and never blocks it. Indoor fixes are slow and
    often vague; if nothing useful comes back, nothing happens.
 
-   Applied silently only when the current location was a guess — the default
-   carried over from last time — and you haven't touched it or logged anything.
-   Otherwise, if GPS disagrees, it's offered as a one-tap suggestion. */
-async function detectForSession({ explicit }) {
+   Applied silently when the current location was a guess — carried over from
+   last time, or the routine's usual gym — and you haven't picked one by hand
+   or logged anything. Otherwise, if GPS disagrees, it's offered as a one-tap
+   suggestion. */
+async function detectForSession() {
   const sessionId = state.workout?.id;
   let fix;
   try {
@@ -1711,7 +1769,7 @@ async function detectForSession({ explicit }) {
     return renderIfIdle();
   }
 
-  const canApply = !explicit && !state.placePickedManually
+  const canApply = !state.placePickedManually
     && !match.ambiguous && state.sets.length === 0;
 
   if (canApply) {
@@ -1719,6 +1777,12 @@ async function detectForSession({ explicit }) {
     state.placeDetected = true;
     const sheetOpen = state.sheet && state.sheet.type !== 'picker';
     if (!sheetOpen) await refresh();
+    if (state.sheet?.type === 'log') {
+      // You may already be looking at the first exercise: show this gym's numbers.
+      state.place = state.places.find((p) => p.id === match.place.id) || state.place;
+      await reloadSheetForPlace();
+      return render();
+    }
   } else {
     state.placeSuggestion = match.place;
   }
