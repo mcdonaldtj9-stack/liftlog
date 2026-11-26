@@ -559,6 +559,41 @@ const unplanned = await store.removeFromPlan(swapW, machinePull.id);
 check('removing a stand-in drops its swap', unplanned.swaps === null);
 await store.discardWorkout(await store.getActiveWorkout());
 
+// ---------- swiping through alternates ----------
+
+const rotPull = await store.createExercise({ name: 'Rot Neutral Pulldown' });
+const rotMachine = await store.createExercise({ name: 'Rot Machine Pulldown' });
+const rotBand = await store.createExercise({ name: 'Rot Band Pulldown' });
+const rotRow = await store.createExercise({ name: 'Rot Row' });
+const rotRoutine = await store.createTemplate({
+  name: 'Rot Pull', place_id: null,
+  exercises: [{ exercise_id: rotPull.id }, { exercise_id: rotRow.id }],
+});
+let rotW = await store.startWorkout({ templateId: rotRoutine.id });
+check('no alternates: a swipe goes straight to the list',
+  (await store.nextAlternate(rotW, rotPull.id)) === null);
+
+await store.addAlternate(rotPull.id, rotMachine.id);
+await store.addAlternate(rotPull.id, rotBand.id);
+const firstAlt = await store.nextAlternate(rotW, rotPull.id);
+check('first swipe brings up the newest saved alternate', firstAlt === rotBand.id);
+rotW = await store.swapInPlan(rotW, rotPull.id, firstAlt);
+const secondAlt = await store.nextAlternate(rotW, firstAlt);
+check('the next swipe steps on to the next alternate', secondAlt === rotMachine.id);
+rotW = await store.swapInPlan(rotW, firstAlt, secondAlt);
+check('the slot still belongs to the routine exercise',
+  store.slotOriginal(rotW, rotMachine.id) === rotPull.id && rotW.plan[0] === rotMachine.id);
+check('after the last alternate, the list comes up',
+  (await store.nextAlternate(rotW, rotMachine.id)) === null);
+
+// Row is the newest alternate now, but it's already its own slot this session.
+await store.addAlternate(rotPull.id, rotRow.id);
+rotW = await store.swapInPlan(rotW, rotMachine.id, rotPull.id);
+check('swiping back round to the routine exercise clears the swap', rotW.swaps === null);
+check('an alternate already elsewhere in the session is skipped',
+  (await store.nextAlternate(rotW, rotPull.id)) === rotBand.id);
+await store.discardWorkout(await store.getActiveWorkout());
+
 // ---------- progress photos ----------
 
 const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;

@@ -1560,38 +1560,36 @@ body.ph-viewing { overflow: hidden; }
 
 /* ---------- swap a planned exercise for an alternate ---------- */
 
-.swipe-row { position: relative; margin: 18px 0; }
-.swipe-row > .ex-block { margin: 0; }
-.swipe-actions {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  justify-content: flex-end;
-  border-radius: 14px;
-  background: var(--accent);
-  visibility: hidden;
-  /* Stay visible until the face has slid back over it. */
-  transition: visibility 0s 0.2s;
-}
-.swipe-row.is-open .swipe-actions,
-.swipe-row.is-dragging .swipe-actions { visibility: visible; transition: none; }
-.swipe-actions button {
-  width: 88px;
-  border: 0;
-  background: none;
-  color: var(--accent-in);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
 .swipe-face {
-  position: relative;
   touch-action: pan-y;
-  transition: transform 0.2s ease-out;
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
 }
-.swipe-row.is-dragging .swipe-face { transition: none; }
-.swipe-row.is-open .swipe-face { transform: translateX(-88px); }
-@media (prefers-reduced-motion: reduce) { .swipe-face { transition: none; } }
+.swipe-face.is-dragging { transition: none; }
+.swipe-face.is-leaving {
+  transform: translateX(-110%) !important;
+  opacity: 0 !important;
+  transition: transform 0.16s ease-in, opacity 0.16s ease-in;
+}
+.swipe-face.is-leaving-right {
+  transform: translateX(110%) !important;
+  opacity: 0 !important;
+  transition: transform 0.16s ease-in, opacity 0.16s ease-in;
+}
+.swipe-face.is-arriving { animation: swipe-in 0.22s ease-out; }
+.swipe-face.is-arriving.from-left { animation-name: swipe-in-left; }
+@keyframes swipe-in {
+  from { transform: translateX(40%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes swipe-in-left {
+  from { transform: translateX(-40%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swipe-face, .swipe-face.is-leaving, .swipe-face.is-leaving-right { transition: none; }
+  .swipe-face.is-arriving { animation: none; }
+}
+.ex-alts { margin: 2px 0 0; color: var(--accent); font-size: 12px; }
 
 .ex-tools { display: flex; flex: none; align-items: center; gap: 2px; }
 .ex-swap {

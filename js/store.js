@@ -630,6 +630,23 @@ export async function swapInPlan(workout, fromId, toId) {
   return next;
 }
 
+/* The routine exercise a slot belongs to, whatever is in it right now. */
+export function slotOriginal(workout, exerciseId) {
+  return (workout?.swaps || {})[exerciseId] ?? exerciseId;
+}
+
+/* Swiping a slot steps through the routine exercise's saved alternates:
+   original -> first alternate -> second -> ... Returns the next exercise id,
+   or null once they're used up (time to pick or add another). Anything
+   already elsewhere in the session is skipped. */
+export async function nextAlternate(workout, exerciseId) {
+  const original = slotOriginal(workout, exerciseId);
+  const elsewhere = new Set((workout?.plan || []).filter((id) => id !== exerciseId));
+  const rotation = [original, ...(await alternatesFor(original)).map((e) => e.id)]
+    .filter((id) => id === exerciseId || !elsewhere.has(id));
+  return rotation[rotation.indexOf(exerciseId) + 1] ?? null;
+}
+
 /* Remember two exercises as stand-ins for each other. Both directions, so
    whichever one you're looking at offers the other. Newest first. */
 export async function addAlternate(aId, bId) {
