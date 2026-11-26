@@ -1,7 +1,7 @@
 /* LiftLog service worker.
    Bump CACHE on every deploy — that's what evicts the old build. */
 
-const CACHE = 'liftlog-v32';
+const CACHE = 'liftlog-v33';
 
 const SHELL = [
   './',
@@ -41,7 +41,10 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
       // Don't let one 404 asset abort the whole install.
-      .then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url))))
+      // `reload` skips the browser's HTTP cache: GitHub Pages lets it keep files
+      // for 10 minutes, which would install a new build with yesterday's JS.
+      .then((cache) => Promise.allSettled(SHELL.map((url) =>
+        cache.add(new Request(url, { cache: 'reload' })))))
       .then(() => self.skipWaiting())
   );
 });
@@ -57,7 +60,10 @@ self.addEventListener('activate', (event) => {
 });
 
 function fromNetwork(request, cacheKey) {
-  return fetch(request).then((response) => {
+  // `no-cache` revalidates with the server (a cheap 304 when nothing changed)
+  // instead of trusting the HTTP cache's 10-minute copy, so every file comes
+  // from the same deploy.
+  return fetch(request, { cache: 'no-cache' }).then((response) => {
     if (response && response.ok) {
       const copy = response.clone();
       caches.open(CACHE).then((cache) => cache.put(cacheKey || request, copy));
