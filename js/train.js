@@ -47,6 +47,7 @@ const state = {
   extras: [],            // exercises logged this session that the routine lacks
   rest: { endsAt: null, duration: rest.DEFAULT_REST },
   restDone: false,  // fired this cycle, so we only alert once
+  swipedEx: null,   // the planned block swiped open to show Swap
 };
 
 /* ---------- helpers ---------- */
@@ -266,8 +267,12 @@ function renderActive() {
         ${set.failed ? '<span class="tag tag-fail">fail</span>' : ''}
       </li>`).join('');
 
-    return `
-      <section class="ex-block${sets.length ? '' : ' is-planned'}">
+    const swappedFrom = (state.workout.swaps || {})[exerciseId];
+    const insteadOf = swappedFrom ? `
+        <p class="ex-swapped">instead of ${escapeHTML(exerciseById(swappedFrom)?.name || 'a removed exercise')}</p>` : '';
+
+    const block = `
+      <section class="ex-block${sets.length ? '' : ' is-planned swipe-face'}" data-ex="${exerciseId}">
         <header class="ex-head">
           <h3>${escapeHTML(exercise?.name || 'Unknown exercise')}</h3>
           ${sets.length
@@ -282,9 +287,13 @@ function renderActive() {
               })()}</span>`
             // Only offer removal while nothing is logged: dropping a block that
             // holds sets is a destructive act, and belongs elsewhere.
-            : `<button class="ex-remove" data-act="unplan" data-ex="${exerciseId}"
-                       aria-label="Remove from this session">×</button>`}
-        </header>
+            : `<span class="ex-tools">
+                <button class="ex-swap" data-act="swap" data-ex="${exerciseId}"
+                        aria-label="Swap for an alternate">⇄</button>
+                <button class="ex-remove" data-act="unplan" data-ex="${exerciseId}"
+                        aria-label="Remove from this session">×</button>
+              </span>`}
+        </header>${insteadOf}
         <ul class="set-list">${rows}</ul>
         ${!sets.length && state.targets.get(exerciseId) ? `
           <p class="ex-target">Target ${[
@@ -295,6 +304,16 @@ function renderActive() {
           ${sets.length ? 'Add set' : 'Start this exercise'}
         </button>
       </section>`;
+
+    // Not started yet: swipe left to swap it for an alternate (the machine's
+    // taken). Once sets are in, the block is history, not a plan.
+    if (sets.length) return block;
+    return `
+      <div class="swipe-row${state.swipedEx === exerciseId ? ' is-open' : ''}" data-ex="${exerciseId}">
+        <div class="swipe-actions">
+          <button data-act="swap" data-ex="${exerciseId}">Swap</button>
+        </div>${block}
+      </div>`;
   }).join('');
 
   const finishArea = state.confirmFinish ? `
@@ -483,8 +502,16 @@ function renderTemplateSheet() {
 function renderPicker() {
   const query = state.sheet.query || '';
   const key = store.nameKey(query);
+  const swapping = state.sheet.mode === 'swap';
+  const swapFor = swapping ? exerciseById(state.sheet.forExerciseId) : null;
+  const saved = swapping ? (state.sheet.alternates || []) : [];
+  // Already in this session (or already listed as saved): not a stand-in.
+  const skip = new Set(swapping
+    ? [state.sheet.forExerciseId, ...saved.map((e) => e.id), ...(state.workout?.plan || [])]
+    : []);
 
   const matches = state.exercises
+    .filter((e) => !skip.has(e.id))
     .filter((e) => !query || e.name_key.includes(key))
     .sort((a, b) => {
       const ua = state.usage.get(a.id) || '';
@@ -512,16 +539,31 @@ function renderPicker() {
       </button>
     </li>` : '';
 
+  const savedRows = saved
+    .filter((e) => !query || e.name_key.includes(key))
+    .filter((e) => !(state.workout?.plan || []).includes(e.id))
+    .map((e) => `
+    <li class="alt-row">
+      <button class="pick-row is-on" data-act="choose" data-ex="${e.id}">
+        <span class="pick-name">${escapeHTML(e.name)}</span>
+        <span class="pick-group">saved alternate</span>
+      </button>
+      <button class="alt-forget" data-act="forget-alt" data-ex="${e.id}"
+              aria-label="Forget this alternate">×</button>
+    </li>`).join('');
+
   return `
     <div class="sheet">
       <header class="sheet-head">
-        <h2>Add exercise</h2>
+        <h2>${swapping ? `Swap ${escapeHTML(swapFor?.name || 'exercise')}` : 'Add exercise'}</h2>
         <button class="btn-link" data-act="close">Cancel</button>
       </header>
+      ${swapping ? `<p class="hint">Pick what you're doing instead. It's saved as an alternate, so it's here first next time.</p>` : ''}
       <input class="search" id="exerciseSearch" type="text" autocomplete="off"
-             autocapitalize="words" placeholder="Search or type a new name"
+             autocapitalize="words" placeholder="${swapping ? 'Search alternates or type a new name' : 'Search or type a new name'}"
              value="${escapeHTML(query)}">
       <ul class="pick-list">
+        ${savedRows}
         ${createRow}
         ${rows || (query ? '' : '<li class="hint center">No exercises yet.</li>')}
       </ul>
@@ -1242,6 +1284,17 @@ function scheduleRestAlert() {
 }
 
 async function onClick(event) {
+  // The click iOS fires at the end of a swipe isn't a tap on what's under it.
+  if (Date.now() < swipe.suppressClickUntil) {
+    event.preventDefault();
+    return;
+  }
+  // With a block swiped open, a tap anywhere but its Swap button closes it.
+  if (state.swipedEx && !event.target.closest('.swipe-actions')) {
+    closeSwipe();
+    if (event.target.closest('.swipe-row')) return;
+  }
+
   const trigger = event.target.closest('[data-act]');
   if (!trigger) return;
 
@@ -1381,8 +1434,19 @@ async function onClick(event) {
         state.sheet = { type: 'template' };
         return render();
       }
+      if (state.sheet.mode === 'swap') return swapTo(id);
       state.workout = await store.addToPlan(state.workout, id);
       return openLogSheet(id);
+    }
+
+    case 'swap':
+      return openSwapPicker(trigger.dataset.ex);
+
+    case 'forget-alt': {
+      await store.removeAlternate(state.sheet.forExerciseId, trigger.dataset.ex);
+      state.exercises = await store.listExercises();
+      state.sheet.alternates = await store.alternatesFor(state.sheet.forExerciseId);
+      return render();
     }
 
     case 'create': {
@@ -1400,6 +1464,7 @@ async function onClick(event) {
         state.sheet = { type: 'template' };
         return render();
       }
+      if (state.sheet.mode === 'swap') return swapTo(exercise.id);
       state.workout = await store.addToPlan(state.workout, exercise.id);
       return openLogSheet(exercise.id);
     }
@@ -1845,12 +1910,96 @@ async function capturePlace(placeId) {
   render();
 }
 
+/* ---------- swapping for an alternate ---------- */
+
+async function openSwapPicker(exerciseId) {
+  closeSwipe();
+  state.sheet = {
+    type: 'picker', mode: 'swap', query: '', focus: false,
+    forExerciseId: exerciseId,
+    alternates: await store.alternatesFor(exerciseId),
+  };
+  render();
+}
+
+/* Put `toId` in the slot, and remember it as an alternate for next time. */
+async function swapTo(toId) {
+  const fromId = state.sheet.forExerciseId;
+  await store.addAlternate(fromId, toId);
+  state.workout = await store.swapInPlan(state.workout, fromId, toId);
+  state.sheet = null;
+  await refresh();
+  render();
+}
+
+/* ---------- swipe ----------
+   Swipe a planned block left to reveal Swap. Horizontal drags only: anything
+   that starts vertical is left to the page scroll. */
+
+const SWIPE_W = 88;
+const swipe = { drag: null, suppressClickUntil: 0 };
+
+function closeSwipe() {
+  if (!state.swipedEx) return;
+  state.swipedEx = null;
+  for (const row of root.querySelectorAll('.swipe-row.is-open')) row.classList.remove('is-open');
+}
+
+function onSwipeDown(event) {
+  const face = event.target.closest('.swipe-face');
+  if (!face || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  const row = face.parentElement;
+  swipe.drag = {
+    face, row, pointerId: event.pointerId,
+    x: event.clientX, y: event.clientY,
+    base: row.classList.contains('is-open') ? -SWIPE_W : 0,
+    offset: 0, active: false,
+  };
+}
+
+function onSwipeMove(event) {
+  const drag = swipe.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const dx = event.clientX - drag.x;
+  const dy = event.clientY - drag.y;
+  if (!drag.active) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.drag = null; return; }
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+    drag.active = true;
+    try { drag.face.setPointerCapture(event.pointerId); } catch { /* already gone */ }
+    drag.row.classList.add('is-dragging');
+    // Only one block open at a time.
+    for (const other of root.querySelectorAll('.swipe-row.is-open')) {
+      if (other !== drag.row) other.classList.remove('is-open');
+    }
+  }
+  drag.offset = Math.max(-SWIPE_W * 1.4, Math.min(0, drag.base + dx));
+  drag.face.style.transform = `translateX(${drag.offset}px)`;
+}
+
+function onSwipeEnd(event) {
+  const drag = swipe.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  swipe.drag = null;
+  if (!drag.active) return;
+  const open = event.type !== 'pointercancel' && drag.offset < -SWIPE_W / 2;
+  drag.row.classList.remove('is-dragging');
+  drag.face.style.transform = '';
+  drag.row.classList.toggle('is-open', open);
+  state.swipedEx = open ? drag.row.dataset.ex : null;
+  swipe.suppressClickUntil = Date.now() + 400;
+}
+
 /* ---------- mount ---------- */
 
 export async function mount(element) {
   root = element;
   root.addEventListener('click', onClick);
   root.addEventListener('input', onInput);
+  root.addEventListener('pointerdown', onSwipeDown);
+  root.addEventListener('pointermove', onSwipeMove);
+  root.addEventListener('pointerup', onSwipeEnd);
+  root.addEventListener('pointercancel', onSwipeEnd);
   document.addEventListener('visibilitychange', onVisible);
   await store.init();
   await refresh();

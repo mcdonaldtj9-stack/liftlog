@@ -298,7 +298,11 @@ export async function extrasForTemplate(workout) {
   const inRoutine = new Set(
     (await templateExercises(workout.template_id)).map((entry) => entry.exercise.id));
   const sets = await setsForWorkout(workout.id);
-  return [...new Set(sets.map((s) => s.exercise_id))].filter((id) => !inRoutine.has(id));
+  // A stand-in for a routine exercise isn't new to the routine; it's saved
+  // as an alternate instead.
+  const swappedIn = new Set(Object.keys(workout.swaps || {}));
+  return [...new Set(sets.map((s) => s.exercise_id))]
+    .filter((id) => !inRoutine.has(id) && !swappedIn.has(id));
 }
 
 /* Append this session's extra exercises to the routine it was started from.
@@ -568,6 +572,10 @@ export async function targetsForWorkout(workout) {
       targets.set(exercise.id, { sets: row.target_sets, reps: row.target_reps });
     }
   }
+  // An exercise swapped in takes over the routine's target for its slot.
+  for (const [alt, original] of Object.entries(workout.swaps || {})) {
+    if (targets.has(original) && !targets.has(alt)) targets.set(alt, targets.get(original));
+  }
   return targets;
 }
 
@@ -584,9 +592,75 @@ export async function addToPlan(workout, exerciseId) {
 export async function removeFromPlan(workout, exerciseId) {
   const plan = workout.plan || [];
   if (!plan.includes(exerciseId)) return workout;
-  const next = db.touch(workout, { plan: plan.filter((id) => id !== exerciseId) });
+  const swaps = { ...(workout.swaps || {}) };
+  delete swaps[exerciseId];
+  const next = db.touch(workout, {
+    plan: plan.filter((id) => id !== exerciseId),
+    swaps: Object.keys(swaps).length ? swaps : null,
+  });
   await db.put('workouts', next);
   return next;
+}
+
+/* ---------- alternates ----------
+   The usual machine is taken, so you do something else in its place. The
+   session's running order keeps the slot; `swaps` remembers which routine
+   exercise each stand-in replaced ({ standIn: original }), so it inherits the
+   target and isn't mistaken for an extra at the end. */
+
+export async function swapInPlan(workout, fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return workout;
+  const plan = workout.plan || [];
+  const swaps = { ...(workout.swaps || {}) };
+  const original = swaps[fromId] ?? fromId;
+  delete swaps[fromId];
+
+  const without = plan.filter((id) => id !== toId);
+  const index = without.indexOf(fromId);
+  if (index >= 0) without[index] = toId;
+  else without.push(toId);
+
+  // Swapping back to the routine's own exercise undoes the swap.
+  if (toId !== original) swaps[toId] = original;
+  const next = db.touch(workout, {
+    plan: without,
+    swaps: Object.keys(swaps).length ? swaps : null,
+  });
+  await db.put('workouts', next);
+  return next;
+}
+
+/* Remember two exercises as stand-ins for each other. Both directions, so
+   whichever one you're looking at offers the other. Newest first. */
+export async function addAlternate(aId, bId) {
+  if (!aId || !bId || aId === bId) return;
+  for (const [id, other] of [[aId, bId], [bId, aId]]) {
+    const exercise = await db.get('exercises', id);
+    if (!exercise || !db.isLive(exercise)) continue;
+    const current = Array.isArray(exercise.alternates) ? exercise.alternates : [];
+    if (current[0] === other) continue;
+    await db.put('exercises', db.touch(exercise, {
+      alternates: [other, ...current.filter((x) => x !== other)],
+    }));
+  }
+}
+
+export async function removeAlternate(aId, bId) {
+  for (const [id, other] of [[aId, bId], [bId, aId]]) {
+    const exercise = await db.get('exercises', id);
+    if (!exercise || !Array.isArray(exercise.alternates) || !exercise.alternates.includes(other)) continue;
+    await db.put('exercises', db.touch(exercise, {
+      alternates: exercise.alternates.filter((x) => x !== other),
+    }));
+  }
+}
+
+/* The saved alternates of an exercise that still exist, in order. */
+export async function alternatesFor(exerciseId) {
+  const exercise = await db.get('exercises', exerciseId);
+  const ids = Array.isArray(exercise?.alternates) ? exercise.alternates : [];
+  const found = await Promise.all(ids.map((id) => db.get('exercises', id)));
+  return found.filter((e) => e && db.isLive(e));
 }
 
 /* ---------- exercises ---------- */

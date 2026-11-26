@@ -510,6 +510,55 @@ check('no place behaves as before',
   (await store.recentSessionsFor(cable.id, { limit: 3 })).map((s) => s.here).join() === ',,');
 void a1;
 
+// ---------- swapping for an alternate ----------
+
+await store.discardWorkout(await store.getActiveWorkout());
+const cablePull = await store.createExercise({ name: 'Swap Cable Pulldown' });
+const machinePull = await store.createExercise({ name: 'Swap Machine Pulldown' });
+const swapRow = await store.createExercise({ name: 'Swap Row' });
+const swapRoutine = await store.createTemplate({
+  name: 'Swap Pull', place_id: null,
+  exercises: [
+    { exercise_id: cablePull.id, target_sets: 3, target_reps: 10 },
+    { exercise_id: swapRow.id, target_sets: 3, target_reps: 12 },
+  ],
+});
+let swapW = await store.startWorkout({ templateId: swapRoutine.id });
+swapW = await store.swapInPlan(swapW, cablePull.id, machinePull.id);
+check('the stand-in takes the same slot',
+  swapW.plan.join() === [machinePull.id, swapRow.id].join());
+check('the swap remembers the routine exercise', swapW.swaps[machinePull.id] === cablePull.id);
+const swapTargets = await store.targetsForWorkout(swapW);
+check('the stand-in inherits the target',
+  swapTargets.get(machinePull.id)?.sets === 3 && swapTargets.get(machinePull.id)?.reps === 10);
+
+await store.addAlternate(cablePull.id, machinePull.id);
+check('alternates are saved both ways',
+  (await store.alternatesFor(cablePull.id)).map((e) => e.id).join() === machinePull.id
+  && (await store.alternatesFor(machinePull.id)).map((e) => e.id).join() === cablePull.id);
+await store.addAlternate(cablePull.id, machinePull.id);
+check('saving again does not duplicate', (await store.alternatesFor(cablePull.id)).length === 1);
+
+await store.addSet({ workout_id: swapW.id, exercise_id: machinePull.id, weight: 120, reps: 10 });
+check('a stand-in is not offered as an addition to the routine',
+  (await store.extrasForTemplate(swapW)).length === 0);
+
+const chained = await store.swapInPlan(swapW, machinePull.id, swapRow.id);
+check('swapping a stand-in again still points at the routine exercise, without duplicating the slot',
+  chained.swaps[swapRow.id] === cablePull.id && !(machinePull.id in chained.swaps)
+  && chained.plan.join() === swapRow.id, chained.plan.join());
+const back = await store.swapInPlan(swapW, machinePull.id, cablePull.id);
+check('swapping back to the original clears the swap',
+  back.swaps === null && back.plan[0] === cablePull.id);
+
+await store.removeAlternate(machinePull.id, cablePull.id);
+check('forgetting an alternate forgets it both ways',
+  (await store.alternatesFor(cablePull.id)).length === 0
+  && (await store.alternatesFor(machinePull.id)).length === 0);
+const unplanned = await store.removeFromPlan(swapW, machinePull.id);
+check('removing a stand-in drops its swap', unplanned.swaps === null);
+await store.discardWorkout(await store.getActiveWorkout());
+
 // ---------- progress photos ----------
 
 const jpeg = (n) => new Uint8Array(n).fill(0xd8).buffer;

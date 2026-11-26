@@ -1557,3 +1557,64 @@ body.ph-viewing { overflow: hidden; }
   font-size: 13px;
 }
 .hs-bw-head strong { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* ---------- swap a planned exercise for an alternate ---------- */
+
+.swipe-row { position: relative; margin: 18px 0; }
+.swipe-row > .ex-block { margin: 0; }
+.swipe-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  border-radius: 14px;
+  background: var(--accent);
+  visibility: hidden;
+  /* Stay visible until the face has slid back over it. */
+  transition: visibility 0s 0.2s;
+}
+.swipe-row.is-open .swipe-actions,
+.swipe-row.is-dragging .swipe-actions { visibility: visible; transition: none; }
+.swipe-actions button {
+  width: 88px;
+  border: 0;
+  background: none;
+  color: var(--accent-in);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.swipe-face {
+  position: relative;
+  touch-action: pan-y;
+  transition: transform 0.2s ease-out;
+}
+.swipe-row.is-dragging .swipe-face { transition: none; }
+.swipe-row.is-open .swipe-face { transform: translateX(-88px); }
+@media (prefers-reduced-motion: reduce) { .swipe-face { transition: none; } }
+
+.ex-tools { display: flex; flex: none; align-items: center; gap: 2px; }
+.ex-swap {
+  width: 36px;
+  height: 36px;
+  margin: -6px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 18px;
+  cursor: pointer;
+}
+.ex-swapped { margin: 2px 0 0; color: var(--muted); font-size: 12px; font-style: italic; }
+
+.alt-row { display: flex; align-items: stretch; gap: 6px; }
+.alt-row .pick-row { flex: 1; min-width: 0; }
+.alt-forget {
+  flex: none;
+  width: 40px;
+  margin-bottom: 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+}

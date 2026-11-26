@@ -25,7 +25,7 @@ import * as supa from './supa.js';
    `dirty` is deliberately absent: it's local bookkeeping, not data. */
 const TABLES = [
   ['exercises', 'exercises',
-    ['id', 'name', 'name_key', 'muscle_group', 'secondary_muscles', 'tracks', 'is_custom', 'rest_seconds']],
+    ['id', 'name', 'name_key', 'muscle_group', 'secondary_muscles', 'alternates', 'tracks', 'is_custom', 'rest_seconds']],
   ['places', 'places',
     ['id', 'name', 'lat', 'lng', 'radius_m', 'accuracy_m', 'located_at', 'for_weight']],
   ['templates', 'templates',
@@ -33,7 +33,7 @@ const TABLES = [
   ['template_exercises', 'template_exercises',
     ['id', 'template_id', 'exercise_id', 'position', 'target_sets', 'target_reps']],
   ['workouts', 'workouts',
-    ['id', 'started_at', 'ended_at', 'place_id', 'template_id', 'plan', 'notes']],
+    ['id', 'started_at', 'ended_at', 'place_id', 'template_id', 'plan', 'swaps', 'notes']],
   ['sets', 'sets',
     ['id', 'workout_id', 'exercise_id', 'set_index', 'weight', 'reps', 'seconds',
      'rpe', 'failed', 'is_warmup', 'is_dropset', 'is_pr']],
@@ -59,7 +59,7 @@ const COMMON = ['created_at', 'updated_at', 'deleted'];
 const FLAGS = ['is_custom', 'failed', 'is_warmup', 'is_dropset', 'is_pr', 'deleted',
   'for_weight', 'archived'];
 /* Arrays locally, jsonb arrays remotely, never null in either. */
-const LISTS = ['secondary_muscles'];
+const LISTS = ['secondary_muscles', 'alternates'];
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 

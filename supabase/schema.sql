@@ -45,6 +45,7 @@ create table if not exists public.exercises (
   name_key          text not null,
   muscle_group      text,
   secondary_muscles jsonb not null default '[]'::jsonb,  -- minor muscles
+  alternates        jsonb not null default '[]'::jsonb,  -- stand-in exercise ids
   tracks            text,
   is_custom         smallint not null default 0,
   rest_seconds      integer,             -- remembered rest after this exercise
@@ -105,6 +106,7 @@ create table if not exists public.workouts (
   place_id          uuid,
   template_id       uuid,
   plan              jsonb,
+  swaps             jsonb,               -- { stand-in id: routine exercise id }
   notes             text,
   created_at        text not null,
   updated_at        text not null,
